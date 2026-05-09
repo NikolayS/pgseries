@@ -58,6 +58,14 @@ Both bottlenecks degrade gracefully — they get slower, not wrong —
 and `add_dimension` (space partitioning) is the v0.2 escape hatch
 when rows-per-chunk pushes past the compression-throughput budget.
 
+The reference machine for the 10¹⁰-row scale benchmark (see
+*Acceptance criteria*) is a single self-hosted instance with **local
+NVMe** storage and **~128 GiB RAM**, running PG 17. Local NVMe is
+deliberate: the benchmark measures what the architecture can do on
+real hardware, not what cloud-attached block storage allows; smoke
+tests on managed providers (which don't expose local NVMe) cover the
+deployment path separately.
+
 ## Privileges
 
 PgSeries needs no `shared_preload_libraries` of its own, but the
@@ -556,10 +564,13 @@ workaround for "too many series".
 - **Scale benchmark**: a single self-hosted PG 17 instance ingests
   **10¹⁰ rows** into one series table over 30 days of synthetic
   metric workload, with retention + cagg + compression + recompression
-  policies all running. Reported numbers: ingest p50/p95, cagg refresh
-  p95 latency, compression throughput (rows/sec/chunk), on-disk size
-  (compressed vs heap+TOAST), p95 query latency on representative
-  range scans.
+  policies all running. **Reference hardware**: local NVMe storage
+  (no network-attached block storage), ~128 GiB RAM, modern many-core
+  x86. Reported numbers: ingest p50/p95, cagg refresh p95 latency,
+  compression throughput (rows/sec/chunk), on-disk size (compressed
+  vs heap+TOAST), p95 query latency on representative range scans.
+  Exact CPU count and NVMe throughput floor pinned after the first
+  dry-run and frozen for the v0.1 release.
 - **Compression benchmark** on a public dataset (NYC taxi + devops
   metrics): ratio (heap + TOAST, excl. indexes) and scan latency vs
   uncompressed and vs TimescaleDB on self-hosted PG, broken down by
@@ -602,5 +613,3 @@ workaround for "too many series".
   functions can be lifted in v0.2 with a specified recombination rule?
 - Commit-timestamp safety margin (§3): is 1 s enough on the slowest
   managed-PG provider observed in smoke tests?
-- Scale-benchmark hardware: which instance class is "the" v0.1
-  reference machine for the 10¹⁰-row run?
