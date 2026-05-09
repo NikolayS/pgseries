@@ -25,6 +25,39 @@ PostgreSQL 15+ (PG 14 lacks `lz4` as default TOAST compression and
 `track_commit_timestamp = on` is required for the cagg watermark; the
 installer checks and errors loudly if it is off.
 
+## Scale target
+
+**v0.1 is sized for 10¹⁰ rows in a single series table** on a single
+managed-PG instance. This is the design target every other number in
+this spec is derived against.
+
+Working back from 10B rows, with default 1-day chunks and 1-year
+retention:
+
+- **365 chunks** (one per day), ~**2.7 × 10⁷ rows per chunk** at the
+  steady-state ingest rate.
+- Average ingest **~317 rows/sec** at uniform load; bursts to single-
+  digit kilo-rows/sec are absorbed by partition pruning + the staging
+  sibling (§5).
+- Raw heap+TOAST ~**320 GiB** at 32 B/row; with the 3–6× compression
+  target, **~55–105 GiB** on disk.
+- Per-chunk segmentby cardinality cap **~10⁴** (§4) → at most ~2 700
+  rows/segment/day on average. That keeps FOR encoding economical and
+  the segments large enough for `lz4` to fire.
+
+10⁸–10⁹ rows is the easy case the same code handles without tuning.
+Past 10¹⁰ rows on a single instance, two things break first:
+
+1. cagg refresh latency on multi-day backfills (the invalidation log
+   gets dense; tunable via `coalesce_interval` and refresh window),
+2. compression throughput (PL/pgSQL group-by-segmentby on a single
+   chunk costs O(rows/chunk); 27M rows/chunk is benchmarkable in
+   minutes, not hours, but >10⁸ rows/chunk would not be).
+
+Both bottlenecks degrade gracefully — they get slower, not wrong —
+and `add_dimension` (space partitioning) is the v0.2 escape hatch
+when rows-per-chunk pushes past the compression-throughput budget.
+
 ## Privileges
 
 PgSeries needs no `shared_preload_libraries` of its own, but the
@@ -128,8 +161,9 @@ in *In scope (v0.1)* below.
 - **Tiered storage to object storage** — Timescale Cloud-only, requires
   custom storage hooks.
 - **Promscale-style ingest caggs** — requires the bypassed insert path.
-- **Space partitioning (`add_dimension`)** — not needed for the v0.1
-  cardinality target; see *Cardinality* below.
+- **Space partitioning (`add_dimension`)** — deferred to v0.2; the
+  v0.1 scale target (10¹⁰ rows) is achievable on time-only partitioning
+  with the per-chunk segmentby cap from §4.
 
 ## In scope (v0.1)
 
@@ -246,12 +280,14 @@ rows with explicit **segmentby** and **orderby**:
 - **value columns** — parallel typed arrays.
 
 **Segmentby cardinality.** Compression ratio collapses when segmentby
-cardinality approaches segments-per-chunk. With ~1 day chunks at typical
-metric rates, segmentby cardinality should stay below ~10⁴ per chunk.
-Above that, segments hold few rows, FOR encoding loses to overhead, and
-ratio drops to ~1.5×. `add_compression_policy()` warns when the chunk's
-distinct segmentby count exceeds `segmentby_warn_threshold` (default
-50000); the install README documents this prominently.
+cardinality approaches segments-per-chunk. With ~1 day chunks at
+typical metric rates, segmentby cardinality should stay below ~10⁴
+per chunk (this is the binding constraint behind the 10¹⁰-row scale
+target). Above that, segments hold few rows, FOR encoding loses to
+overhead, and ratio drops to ~1.5×. `add_compression_policy()` warns
+when the chunk's distinct segmentby count exceeds
+`segmentby_warn_threshold` (default 50 000); the install README
+documents this prominently.
 
 Pipeline (vectorized SQL):
 
@@ -472,30 +508,35 @@ own a chunk (§1).
 
 ## Cardinality
 
-v0.1 partitions on time only. Series cardinality is **not** the same
-as the partitioning dimension — series identity lives in the segmentby
-columns of the compressed sibling, not in the chunking scheme.
+The earlier "~10⁶ active series" framing in this spec was wrong — it
+conflated total cardinality with per-chunk segmentby cardinality, and
+quoted a number two-to-three orders of magnitude below the actual
+ceiling. The correct framing is:
 
-The practical ceiling depends on two distinct numbers:
-
-- **Total active series** (`device_id` × `metric_name` × …): with
-  segmentby compression, **10⁷–10⁸** active series is workable on a
-  single node at typical metric rates.
+- **Total rows in a series table** (the headline scale number):
+  **10¹⁰** at v0.1's design point. See *Scale target* above for
+  derivation.
+- **Total active series** (`device_id` × `metric_name` × …): not the
+  binding constraint. Series identity lives in segmentby columns;
+  series count is bounded by `segmentby_per_chunk × chunks_in_window`,
+  and 10⁴ × 365 = 3.65 × 10⁶ active series is fine on default chunking
+  before any segmentby tuning. Provider-side limits (RAM, WAL, IOPS)
+  bind earlier than series count does.
 - **Distinct segmentby values per chunk**: keep below **~10⁴** for the
   3–6× compression target. Above that, segments hold too few rows and
-  ratio drops to ~1.5×; a workload-specific `add_compression_policy()`
-  knob warns at 50 000.
+  ratio drops to ~1.5×; `add_compression_policy()` warns at 50 000.
 
-The earlier "~10⁶ active series" framing in this spec was wrong — it
-conflated total cardinality with per-chunk segmentby cardinality. Time-
-only partitioning is sufficient at v0.1's target scale; `add_dimension`
-(space partitioning) was deprioritized upstream and is not needed here.
+Time-only partitioning is sufficient for v0.1's 10¹⁰-row target.
+`add_dimension` (space partitioning) is the v0.2 escape hatch when
+rows-per-chunk pushes past the compression-throughput budget — not a
+workaround for "too many series".
 
 ## Non-goals
 
 - Match TimescaleDB's 10–20× compression ratios. Target 3–6×.
 - Match TimescaleDB scan latency on compressed data. Target: queries
   filter through BRIN/partition pruning before unnesting.
+- Scale a single series table past 10¹⁰ rows without `add_dimension`.
 
 ## Acceptance criteria
 
@@ -506,12 +547,19 @@ only partitioning is sufficient at v0.1's target scale; `add_dimension`
   pruning + BRIN `minmax_multi_ops` segment skipping + zero
   `Function Scan` on `unpack_segment` for skipped partitions. Runs in
   CI on PG 15/16/17/18.
-- **Smoke test** on RDS, Aurora, Cloud SQL, Supabase, Neon (free tier;
-  10M rows ingested over ≤10 minutes; SLA: each policy job completes
-  within `2 × schedule_interval` measured at the 95th percentile over
-  10 runs): create series table, ingest 10M rows, add retention + cagg
-  + compression + recompression policies, verify each runs under
-  `pg_cron` AND under `pgseries.run_due_jobs()`.
+- **Smoke test** on RDS, Aurora, Cloud SQL, Supabase, Neon (free or
+  starter tier; 10⁷ rows ingested over ≤10 minutes; SLA: each policy
+  job completes within `2 × schedule_interval` measured at the 95th
+  percentile over 10 runs): create series table, ingest 10M rows, add
+  retention + cagg + compression + recompression policies, verify each
+  runs under `pg_cron` AND under `pgseries.run_due_jobs()`.
+- **Scale benchmark**: a single self-hosted PG 17 instance ingests
+  **10¹⁰ rows** into one series table over 30 days of synthetic
+  metric workload, with retention + cagg + compression + recompression
+  policies all running. Reported numbers: ingest p50/p95, cagg refresh
+  p95 latency, compression throughput (rows/sec/chunk), on-disk size
+  (compressed vs heap+TOAST), p95 query latency on representative
+  range scans.
 - **Compression benchmark** on a public dataset (NYC taxi + devops
   metrics): ratio (heap + TOAST, excl. indexes) and scan latency vs
   uncompressed and vs TimescaleDB on self-hosted PG, broken down by
@@ -538,9 +586,11 @@ only partitioning is sufficient at v0.1's target scale; `add_dimension`
 
 ## Open questions
 
-- Default chunk size: time-based (1 day), row-based (1M), or adaptive?
+- Default chunk size: time-based (1 day), row-based (~3 × 10⁷), or
+  adaptive? At the 10¹⁰-row target the two converge on ~1 day; the
+  question is which knob to expose.
 - Segment row count: trade scan amplification against TOAST
-  externalization. Default 1000; revisit after benchmarks.
+  externalization. Default 1 000; revisit after benchmarks.
 - Lossy float requantization: opt-in per column at table creation, or
   per compression policy?
 - Table abstraction name: `series_table` (default) vs `hypertable`
@@ -552,3 +602,5 @@ only partitioning is sufficient at v0.1's target scale; `add_dimension`
   functions can be lifted in v0.2 with a specified recombination rule?
 - Commit-timestamp safety margin (§3): is 1 s enough on the slowest
   managed-PG provider observed in smoke tests?
+- Scale-benchmark hardware: which instance class is "the" v0.1
+  reference machine for the 10¹⁰-row run?
