@@ -176,11 +176,11 @@ index scan + zero `Function Scan` on `unpack_segment` for skipped
 partitions.
 
 **Honest ratio.** Target **3–6×** against heap + TOAST on
-integer/timestamp telemetry. TimescaleDB-class 10–20× ratios
-require bit-level codecs (Gorilla, delta-delta, simple-8b) whose
-PL/pgSQL per-value overhead would invert the economics. Float
-columns without lossy requantization compress closer to 2×.
-Benchmarks report per-column-type breakdown.
+integer/timestamp telemetry. Bit-level codecs (Gorilla,
+delta-delta, simple-8b) would give higher ratios but their
+PL/pgSQL per-value overhead inverts the economics. Float columns
+without lossy requantization compress closer to 2×. Benchmarks
+report per-column-type breakdown.
 
 **Compression swap** takes a short `AccessExclusive` lock on the
 parent under `set local lock_timeout = '1s'`, performs the heap
@@ -206,9 +206,8 @@ periodically merges staging rows into the compressed sibling.
 Reads union all three siblings (uncompressed, staging, compressed)
 so a freshly-written row is visible immediately.
 
-This avoids decompressing a whole segment on every late write —
-the model TimescaleDB adopted in 2.11+ and the right default for
-out-of-order ingest. Two alternatives are also available:
+This avoids decompressing a whole segment on every late write.
+Two alternatives are also available:
 
 - `error` mode: a trigger raises; the application is expected to
   not write to compressed ranges.
@@ -488,6 +487,63 @@ Job control: `alter_job`, `pause_job`, `resume_job`, `run_job_now`.
 `set search_path = pgseries, pg_catalog`. Functions that create
 chunks, compress, decompress, or merge staging are owned by
 `pgseries_admin` so chunk ownership is uniform.
+
+## Feature mapping (for TimescaleDB users)
+
+A reference for readers familiar with TimescaleDB's surface, so
+you can tell at a glance what maps to what. This is not a parity
+goal — the real commitments are in *Architecture* and
+*Non-goals*.
+
+### Supported in v0.1
+
+| TimescaleDB | PgSeries |
+|---|---|
+| Hypertables | Series tables (native PG range partitioning + default-partition catch) |
+| Chunks | Same — one PG partition per chunk |
+| Retention policies | `add_retention_policy` (PgQ-scheduled) |
+| Compression policies | `add_compression_policy` |
+| Recompression | `add_recompression_policy` (separate scheduled policy) |
+| Columnar compression | Sibling `_compressed` table; segmentby + orderby; FOR + dict + null bitmap + lz4. Target 3–6× |
+| Decompression API | `decompress_chunk` |
+| Continuous aggregates | `add_continuous_aggregate` over an embedded PgQ invalidation queue |
+| Real-time aggregation | Cagg view unions materialized + on-the-fly past the PgQ tick |
+| Finalized vs partials cagg storage | Both; finalized default, `partials` opt-in for hierarchical |
+| Hierarchical caggs (cagg-on-cagg) | Fixed-width buckets only (microsecond … week) |
+| Reorder / clustering policies | `CLUSTER` on chunks via PgQ schedule |
+| `time_bucket()` | Pure SQL, fixed-width parity |
+| `time_bucket_gapfill()` | Pure SQL, single-group-key in v0.1 |
+| `first()` / `last()` | Pure-SQL custom aggregates with composite state |
+| Chunk exclusion / data skipping | Partition pruning + BRIN `minmax_multi_ops` + view-layer predicate pushdown via `LATERAL` |
+| Job scheduler | PgQ ticker (`pg_cron`, `pg_timetable`, or any external driver) |
+| Job control | `alter_job`, `pause_job`, `resume_job`, `run_job_now`, retry-with-backoff, DLQ |
+| `timescaledb_information` views | `pgseries_information.{jobs, job_stats, job_errors, chunks, compression_settings, compressed_chunk_stats, continuous_aggregates, cagg_lag}` |
+| `ts_insert_blocker` | Default-mode trigger on compressed chunks (raises); also `staging` and `auto_decompress` modes |
+| `show_chunks` / `drop_chunks` | Same names |
+| Roles | `pgseries_reader`, `pgseries_writer`, `pgseries_admin` |
+
+### Partial or lossy
+
+| TimescaleDB | PgSeries |
+|---|---|
+| Hyperfunctions (`percentile_agg`, `histogram`, `counter_agg`, `time_weight`, ASOF, `locf`, `interpolate`) | Use PG built-ins (`percentile_cont`, `width_bucket`) and `DISTINCT ON` instead. Hand-rolled PL/pgSQL versions are too slow to ship. |
+| Approximation sketches | `hll` supported (broadly available on managed PG); `tdigest` not on the managed-PG happy path; pure-SQL t-digest is v0.2-conditional. |
+| Multi-group `time_bucket_gapfill` | Single-group-key only in v0.1. |
+| Lossless float compression | Gorilla unavailable in PL/pgSQL; v0.1 ships only opt-in lossy requantization. Floats compress closer to 2× without it. |
+| Cagg select-list shapes | `HAVING`, `GROUPING SETS`/`ROLLUP`/`CUBE`, and window functions rejected by `add_continuous_aggregate()`. Wrap the cagg view in a regular view to apply them at query time. |
+| Compression ratio | Target **3–6×** (vs Timescale's 10–20× with bit-level codecs). |
+
+### Out of scope (v0.1 or never)
+
+| TimescaleDB | PgSeries |
+|---|---|
+| Bit-level codecs (Gorilla, delta-delta, simple-8b) | Never in pure SQL. Per-value PL/pgSQL overhead inverts the economics. |
+| Custom planner/executor nodes (vectorized scan, chunk-exclusion hooks, constraint-aware parallel append) | Never without C. Replaced (imperfectly) by partition pruning + BRIN + `LATERAL`. |
+| Distributed hypertables | Out of scope. Deprecated upstream as of TimescaleDB 2.14. |
+| Tiered storage to object storage | Out of scope. Requires custom storage hooks. |
+| Promscale-style ingest caggs | Out of scope. Requires the bypassed insert path. |
+| `add_dimension` (space partitioning) | **v0.2** — designed into the catalog from day zero (see *Architecture* §6). API exists in v0.1 and returns a v0.2 error. |
+| Hypertable → series_table converter | v0.1 ships a per-chunk parallel `pg_dump` migration script, not an in-place converter. |
 
 ## Non-goals
 
