@@ -1,22 +1,29 @@
-# PgSeries — time-series for any Postgres
+# PgSeries — TimescaleDB lite, works everywhere
 
-## What this is
+**Hypertables, continuous aggregates, columnar compression,
+retention.** The familiar time-series surface, on any Postgres 17+.
+No C of our own, no `shared_preload_libraries`, no restart.
+Apache-2.0.
 
-A pure-SQL/PL-pgSQL time-series layer for Postgres 17+. Single-file
-install (`\i pgseries.sql`). No C of our own. No
-`shared_preload_libraries`. No restart. Apache-2.0.
+Single-file install: `\i pgseries.sql`, one transaction. Anywhere
+Postgres runs — any provider, any tier, your laptop. No vendor
+approval, no support ticket, no parameter group to edit.
 
-It runs anywhere Postgres runs: any provider, any tier, any version
-17 or newer. No vendor approval, no license carve-out, no parameter
-group to edit, no support ticket. The install is one transaction; the
-uninstall is one drop schema.
+If you've used TimescaleDB you know the shape: `create_series_table`,
+`add_continuous_aggregate`, `add_compression_policy`, `time_bucket`,
+`first`/`last`, `show_chunks`, `drop_chunks`. Same surface, same
+mental model. Where pure SQL can't match the C extension (bit-level
+codecs, custom planner nodes), PgSeries is honest about it: target
+**3–6× compression instead of 10–20×**, BRIN + partition pruning +
+`LATERAL` instead of planner hooks. Most of the value, on the
+Postgres you can actually deploy on.
 
-PgSeries is the time-series sibling of [PgQue](https://github.com/NikolayS/PgQue):
-same install model, same Apache-2.0 license, same "anti-extension"
-posture. PgQue's PgQ engine is **embedded** inside PgSeries — the
-snapshot/tick semantics that PgQ has run in production since 2007
-are exactly what continuous aggregates and the job scheduler need
-(see *Architecture › Embedded PgQ*).
+PgSeries is the time-series sibling of
+[PgQue](https://github.com/NikolayS/PgQue) — same install model,
+same Apache-2.0 license, same "anti-extension" posture. PgQue's PgQ
+engine is **embedded** for the snapshot/tick semantics that
+continuous aggregates and the job scheduler need (see
+*Architecture › Embedded PgQ*).
 
 ## Scale target
 
