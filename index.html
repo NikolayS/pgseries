@@ -237,7 +237,6 @@ pre {
   .brief { max-width: none; padding: 0; }
   .brief-goal,.brief-section { break-inside: avoid; }
 }</style>
-</head>
 <body>
 <div class="progress" aria-hidden="true"><i id="pb"></i></div>
 <header class="metabar">
@@ -257,36 +256,8 @@ pre {
 </div>
 </div>
 </header>
-<main class="brief">
-<header class="brief-hero">
-<p class="brief-kicker">Brief — derivative summary</p>
-<h1 class="brief-title">PgSeries — TimescaleDB lite, works everywhere</h1>
-<p class="brief-subtitle">
-<code>pgseries</code> ·
- Version v0.1 ·
- Published <time>2026-05-09T13:00:00Z</time> ·
- <a href="./SPEC.md">canonical SPEC.md →</a>
-</p>
-<p class="brief-warning">
-Summary, not the spec. Skim this for shape, architecture, scope, risks, decisions, and open questions in 5–10 minutes; consult <a href="./SPEC.md">SPEC.md</a> for the full text.
-</p>
-</header>
-<nav class="brief-toc">
-<div class="brief-toc-title">In this brief</div>
-<ol>
-<li><a href="#s-goal"><span class="num">01</span><span>Goal</span></a></li>
-<li><a href="#s-numbers"><span class="num">02</span><span>Headline numbers</span></a></li>
-<li><a href="#s-architecture"><span class="num">03</span><span>Architecture</span></a></li>
-<li><a href="#s-scope"><span class="num">04</span><span>Scope</span></a></li>
-<li><a href="#s-decisions"><span class="num">05</span><span>Decisions</span></a></li>
-<li><a href="#s-open"><span class="num">06</span><span>Open questions</span></a></li>
-<li><a href="#s-risks"><span class="num">07</span><span>Risks</span></a></li>
-<li><a href="#s-mapping"><span class="num">08</span><span>Feature mapping</span></a></li>
-<li><a href="#s-acceptance"><span class="num">09</span><span>Acceptance</span></a></li>
-</ol>
-</nav>
 <style>
-/* ============ rich-content rules (hand-curated sections) ============ */
+/* ============ rich-content styles (hand-curated sections) ============ */
 .kv-table {
   width: 100%; border-collapse: collapse; margin: 0 0 var(--lh);
   font-size: 0.92rem;
@@ -295,8 +266,9 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 .kv-table tr:first-child { border-top: 1px solid var(--rule); }
 .kv-table td {
   padding: 0.4rem 1ch; vertical-align: baseline;
+  word-break: break-word;
 }
-.kv-table td:first-child { color: var(--ink-2); width: 40%; }
+.kv-table td:first-child { color: var(--ink-2); width: 38%; }
 .kv-table td:nth-child(2) {
   font-weight: 700; color: var(--ink); white-space: nowrap;
 }
@@ -308,43 +280,35 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
   .kv-table td:first-child { width: 55%; }
 }
 
-.svg-diagram {
-  width: 100%; max-width: 100%;
-  margin: 0 0 var(--lh);
+/* per-piece architecture mini-section */
+.arch-piece { margin: 0 0 var(--lh); }
+.arch-piece + .arch-piece { padding-top: calc(var(--lh) * 0.5); }
+.arch-piece-h {
+  display: flex; align-items: baseline; gap: 1ch;
+  margin: 0 0 calc(var(--lh) * 0.5);
+}
+.arch-piece-num {
+  color: var(--accent); font-weight: 700; font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+.arch-piece-h h3 {
+  margin: 0; font-size: 1rem; color: var(--ink);
+  font-weight: 700;
+}
+.arch-piece p { margin: 0 0 calc(var(--lh) * 0.5); font-size: 0.93rem; }
+
+.mini-svg {
+  width: 100%; max-width: 100%; display: block;
+  margin: 0 0 calc(var(--lh) * 0.5);
+  background: var(--paper-2);
   border: 1px solid var(--rule); border-radius: 2px;
-  background: var(--paper-2); padding: var(--lh) 1ch;
-  display: block;
+  padding: 0.6rem 0.5ch;
 }
-.svg-diagram svg { display: block; width: 100%; height: auto; }
-
-.scope-grid {
-  display: grid; grid-template-columns: 1fr; gap: var(--lh) 2ch;
-  margin: 0 0 var(--lh);
-}
-@media (min-width: 720px) { .scope-grid { grid-template-columns: 1fr 1fr; } }
-.scope-col {
-  border: 1px solid var(--rule); padding: calc(var(--lh) * 0.5) 1.5ch;
-}
-.scope-col.in { border-left: 3px solid var(--ok); }
-.scope-col.out { border-left: 3px solid var(--ink-3); }
-.scope-col h3 {
-  font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--ink-2); margin: 0 0 0.5rem;
-  display: flex; justify-content: space-between; align-items: baseline;
-}
-.scope-col h3 .pill {
-  font-size: 0.7rem; color: var(--ink-3);
-  text-transform: none; letter-spacing: 0;
-  font-weight: 400;
-}
-.scope-col ul { padding-left: 0; }
-.scope-col li::before { content: "" !important; }
-.scope-col.in li::before { content: "+ " !important; color: var(--ok); }
-.scope-col.out li::before { content: "− " !important; color: var(--ink-3); }
-.scope-col li {
-  padding: 0.15rem 0; line-height: 1.45; font-size: 0.92rem;
+.mini-svg svg {
+  display: block; width: 100%; height: auto;
 }
 
+/* decisions */
 .decisions {
   list-style: none; padding: 0; margin: 0 0 var(--lh);
   counter-reset: dec;
@@ -374,9 +338,8 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
   text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
 }
 
-.fmap details {
-  border-top: 1px solid var(--rule);
-}
+/* feature mapping */
+.fmap details { border-top: 1px solid var(--rule); }
 .fmap details:last-of-type { border-bottom: 1px solid var(--rule); }
 .fmap summary {
   list-style: none; cursor: pointer;
@@ -387,29 +350,36 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 .fmap summary::-webkit-details-marker { display: none; }
 .fmap summary::before {
   content: "+"; color: var(--ink-3); margin-right: 1ch;
-  font-weight: 400; font-size: 1.1em;
+  font-weight: 400; font-size: 1.1em; min-width: 1ch;
+  display: inline-block;
 }
 .fmap details[open] > summary::before { content: "−"; }
 .fmap summary .pill {
   font-weight: 400; color: var(--ink-3); font-size: 0.85rem;
-  margin-left: auto;
+  margin-left: auto; white-space: nowrap;
 }
-.fmap-body {
-  padding: 0 0 var(--lh) 3ch;
-}
+.fmap-body { padding: 0 0 var(--lh) 3ch; overflow-x: hidden; }
 .fmap-body table {
   width: 100%; border-collapse: collapse; font-size: 0.9rem;
+  table-layout: fixed;
 }
 .fmap-body td {
-  padding: 0.35rem 1ch; vertical-align: baseline;
+  padding: 0.4rem 1ch; vertical-align: baseline;
   border-bottom: 1px dotted var(--rule);
+  word-break: break-word; overflow-wrap: break-word;
 }
 .fmap-body tr:last-child td { border-bottom: none; }
 .fmap-body td:first-child {
-  width: 40%; font-weight: 600; color: var(--ink); padding-left: 0;
+  width: 36%; font-weight: 600; color: var(--ink); padding-left: 0;
 }
 .fmap-body td:last-child { color: var(--ink-2); padding-right: 0; }
+@media (max-width: 600px) {
+  .fmap-body { padding-left: 1ch; }
+  .fmap-body td:first-child { width: 45%; }
+  .fmap-body table { font-size: 0.85rem; }
+}
 
+/* acceptance */
 .accept-list {
   list-style: none; padding: 0; margin: 0 0 var(--lh);
   counter-reset: acc;
@@ -419,34 +389,87 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
   counter-increment: acc;
   padding: 0.4rem 0 0.4rem 5ch;
   border-bottom: 1px solid var(--rule); position: relative;
-  font-size: 0.92rem; line-height: 1.5;
+  font-size: 0.92rem; line-height: 1.5; word-break: break-word;
 }
 .accept-list > li:first-child { border-top: 1px solid var(--rule); }
 .accept-list > li::before {
   content: counter(acc, decimal-leading-zero);
   position: absolute; left: 1ch; top: 0.45rem;
   color: var(--ink-3); font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
 }
-.accept-list > li strong {
-  color: var(--accent); font-weight: 700;
-}
+.accept-list > li strong { color: var(--accent); font-weight: 700; }
 
-.callout-list { padding-left: 0; margin: 0; }
+/* callouts */
+.callout-list { padding-left: 0; margin: 0; list-style: none; }
 .callout-list li::before { content: "▸ " !important; color: var(--accent); }
 .callout-list.warn li::before { color: var(--warn); }
 .callout-list.bad li::before { color: var(--bad); }
-.callout-list li { padding: 0.15rem 0; line-height: 1.5; font-size: 0.93rem; }
+.callout-list li {
+  padding: 0.15rem 0 0.15rem 2.5ch;
+  text-indent: -2.5ch;
+  line-height: 1.5; font-size: 0.93rem;
+}
 
-.svg-cap { font-size: 0.82rem; color: var(--ink-3); text-align: center; margin: 0.4rem 0 0; font-style: italic; font-family: ui-monospace, monospace; }
+.svg-cap {
+  font-size: 0.78rem; color: var(--ink-3);
+  text-align: center; margin: 0 0 var(--lh);
+  font-style: italic;
+}
+
+/* ============ scroll-spy ============ */
+.brief-toc a.active {
+  color: var(--ink); background: var(--paper-3);
+  border-left-color: var(--accent);
+  font-weight: 700;
+}
+.brief-toc a.active .num { color: var(--accent); }
+.metabar .status { font-variant-numeric: tabular-nums; }
+.metabar .status.has-section { color: var(--ink); }
+.metabar .status .sec-num {
+  color: var(--accent); margin-right: 0.5ch; font-weight: 700;
+}
+
+/* prevent any rogue overflow */
+.brief * { max-width: 100%; }
+.brief pre, .brief code, .brief .fmap-body table { max-width: 100%; }
 </style>
+<header class="brief-hero">
+<p class="brief-kicker">Brief — derivative summary</p>
+<h1 class="brief-title">PgSeries — TimescaleDB lite, works everywhere</h1>
+<p class="brief-subtitle">
+<code>pgseries</code> ·
+ v0.1 ·
+ <time>2026-05-09</time> ·
+ PG 17 · 18 ·
+ Apache-2.0 ·
+ <a href="./SPEC.md">canonical SPEC.md →</a>
+</p>
+<p class="brief-warning">
+Summary, not the spec. Skim this for shape, architecture, decisions, open questions, and risks in 5–10 minutes; consult <a href="./SPEC.md">SPEC.md</a> for the full text.
+</p>
+</header>
+<nav class="brief-toc">
+<div class="brief-toc-title">In this brief</div>
+<ol>
+<li><a href="#s-goal" data-sec="01"><span class="num">01</span><span>Goal</span></a></li>
+<li><a href="#s-numbers" data-sec="02"><span class="num">02</span><span>Numbers</span></a></li>
+<li><a href="#s-architecture" data-sec="03"><span class="num">03</span><span>Architecture</span></a></li>
+<li><a href="#s-decisions" data-sec="04"><span class="num">04</span><span>Decisions</span></a></li>
+<li><a href="#s-open" data-sec="05"><span class="num">05</span><span>Open questions</span></a></li>
+<li><a href="#s-risks" data-sec="06"><span class="num">06</span><span>Risks</span></a></li>
+<li><a href="#s-mapping" data-sec="07"><span class="num">07</span><span>Feature mapping</span></a></li>
+<li><a href="#s-acceptance" data-sec="08"><span class="num">08</span><span>Acceptance</span></a></li>
+</ol>
+</nav>
 
-<section class="brief-goal" id="s-goal">
+<section class="brief-goal" id="s-goal" data-sec="01">
 <h2><span class="n">01</span><span>Goal</span></h2>
 <p>PgSeries delivers <strong>TimescaleDB-shape time-series ergonomics on any Postgres 17+</strong> — managed, self-hosted, or laptop — using only pure SQL and PL/pgSQL. The single-file install gives users hypertables, continuous aggregates, columnar compression, and retention policies under the same names and call shapes TimescaleDB users already know, trading the ratio of C-extension columnstores for the reach of "runs anywhere Postgres runs". v0.1 is sized for <em>10 billion rows</em> in a single series table on a single managed-PG instance.</p>
 <p>It is the time-series sibling of <a href="https://github.com/NikolayS/PgQue">PgQue</a> — same install model, same Apache-2.0 license, same anti-extension posture. PgQue's PgQ engine is embedded for the snapshot/tick semantics that continuous aggregates and the job scheduler need.</p>
 </section>
 
-<section class="brief-section brief-section-generic" id="s-numbers">
+<section class="brief-section brief-section-generic" id="s-numbers" data-sec="02">
 <h2><span class="n">02</span><span>Headline numbers</span></h2>
 <table class="kv-table">
 <tr><td>Postgres versions</td><td>17 · 18</td><td>no 16, no &lt;16</td></tr>
@@ -464,172 +487,227 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <p class="brief-warning"><strong>Per-column-type compression target.</strong> integer 5–8× · timestamp 6–10× · low-cardinality text 10–20× · float64 with lossy requantization 3–5× · float64 raw 1.5–2.5×.</p>
 </section>
 
-<section class="brief-section brief-section-architecture" id="s-architecture">
+<section class="brief-section brief-section-architecture" id="s-architecture" data-sec="03">
 <h2><span class="n">03</span><span>Architecture</span></h2>
-<p>Six interlocking pieces. The hot write path stays inside PG's own row-routing; everything PgSeries-specific runs as a PgQue-scheduled job <em>outside</em> the writer's transaction.</p>
+<p>Seven interlocking pieces. The hot write path stays inside PG's own row-routing; everything PgSeries-specific runs as a PgQue-scheduled job <em>outside</em> the writer's transaction. Each diagram below is the local data flow for that piece.</p>
 
-<div class="svg-diagram" aria-label="PgSeries data-flow diagram">
-<svg viewBox="0 0 600 950" xmlns="http://www.w3.org/2000/svg" role="img">
-<title>Write path, continuous aggregates, compression, read path</title>
+<div class="arch-piece">
+<div class="arch-piece-h"><span class="arch-piece-num">01</span><h3>Time partitioning · DEFAULT-stash + mover</h3></div>
+<div class="mini-svg">
+<svg viewBox="0 0 520 260" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Write path: insert → row routing → chunk heap, with DEFAULT stash + mover</title>
 <defs>
-<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
-<path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+<marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#847b6a"/>
 </marker>
 <style>
-.bx { fill: var(--paper); stroke: var(--rule-2); stroke-width: 1.2; }
-.bx-acc { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
-.bx-warm { fill: var(--warn-bg); stroke: var(--rule-2); stroke-width: 1.2; }
-.lbl { font-family: var(--mono); font-size: 12px; fill: var(--ink); }
-.lbl-sm { font-family: var(--mono); font-size: 10.5px; fill: var(--ink-2); }
-.lbl-h { font-family: var(--mono); font-size: 13px; fill: var(--accent); font-weight: 700; }
-.fl { fill: none; stroke: var(--ink-3); stroke-width: 1.2; color: var(--ink-3); }
-.lbl-c { text-anchor: middle; }
+.b { fill: #faf7f0; stroke: #c2b89e; stroke-width: 1.2; }
+.ba { fill: #e6f0e0; stroke: #1f6f3f; stroke-width: 1.4; }
+.bw { fill: #f5e8d0; stroke: #c2b89e; stroke-width: 1.2; }
+.t { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; fill: #1a1714; text-anchor: middle; }
+.s { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; fill: #4a443c; text-anchor: middle; }
+.l { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; fill: #847b6a; }
+.f { fill: none; stroke: #847b6a; stroke-width: 1.2; }
+@media (prefers-color-scheme: dark) {
+  .b { fill: #1c1814; stroke: #423c33; }
+  .ba { fill: #1d2c20; stroke: #6fcf8a; }
+  .bw { fill: #2c2317; stroke: #423c33; }
+  .t { fill: #ece4d3; }
+  .s { fill: #b9b0a0; }
+  .l, .f { fill: #7a7263; stroke: #7a7263; }
+}
 </style>
 </defs>
-
-<text x="300" y="22" class="lbl-h lbl-c">[ 01 · WRITE PATH ]</text>
-<rect class="bx" x="200" y="40" width="200" height="42" rx="3"/>
-<text x="300" y="58" class="lbl lbl-c">Application INSERT</text>
-<text x="300" y="73" class="lbl-sm lbl-c">into series_table parent</text>
-<path class="fl" d="M 300 84 L 300 102" marker-end="url(#arr)"/>
-
-<rect class="bx-acc" x="180" y="102" width="240" height="42" rx="3"/>
-<text x="300" y="120" class="lbl lbl-c">Native PG row routing</text>
-<text x="300" y="135" class="lbl-sm lbl-c">range partition by time</text>
-
-<path class="fl" d="M 240 146 L 240 168 L 180 168 L 180 188" marker-end="url(#arr)"/>
-<text x="232" y="162" class="lbl-sm">yes ↙</text>
-<rect class="bx" x="80" y="188" width="200" height="42" rx="3"/>
-<text x="180" y="206" class="lbl lbl-c">Chunk heap</text>
-<text x="180" y="221" class="lbl-sm lbl-c">pre-created 7 days ahead</text>
-
-<path class="fl" d="M 360 146 L 360 168 L 420 168 L 420 188" marker-end="url(#arr)"/>
-<text x="368" y="162" class="lbl-sm">↘ no</text>
-<rect class="bx-warm" x="320" y="188" width="200" height="42" rx="3"/>
-<text x="420" y="206" class="lbl lbl-c">DEFAULT partition</text>
-<text x="420" y="221" class="lbl-sm lbl-c">stash · rare miss</text>
-
-<path class="fl" d="M 420 232 L 420 252" marker-end="url(#arr)"/>
-<rect class="bx-acc" x="320" y="252" width="200" height="40" rx="3"/>
-<text x="420" y="270" class="lbl lbl-c">mover job</text>
-<text x="420" y="284" class="lbl-sm lbl-c">PgQue tick · ~200 ms</text>
-<path class="fl" d="M 320 271 L 200 271 L 200 230" marker-end="url(#arr)"/>
-<text x="220" y="265" class="lbl-sm">creates partition + moves rows</text>
-
-<text x="300" y="328" class="lbl-h lbl-c">[ 02 · CONTINUOUS AGGREGATES ]</text>
-<rect class="bx" x="120" y="344" width="360" height="44" rx="3"/>
-<text x="300" y="362" class="lbl lbl-c">AFTER STATEMENT trigger</text>
-<text x="300" y="378" class="lbl-sm lbl-c">transition tables · INSERT/UPDATE/DELETE</text>
-<path class="fl" d="M 230 388 L 230 408" marker-end="url(#arr)"/>
-<path class="fl" d="M 370 388 L 370 408" marker-end="url(#arr)"/>
-
-<rect class="bx-acc" x="120" y="408" width="220" height="44" rx="3"/>
-<text x="230" y="426" class="lbl lbl-c">PgQue queue</text>
-<text x="230" y="442" class="lbl-sm lbl-c">cagg_invalidation_&lt;c&gt;</text>
-
-<rect class="bx" x="360" y="408" width="170" height="44" rx="3"/>
-<text x="445" y="426" class="lbl lbl-c">data-time log</text>
-<text x="445" y="442" class="lbl-sm lbl-c">dirty buckets</text>
-
-<path class="fl" d="M 230 452 L 230 470 L 300 470 L 300 488" marker-end="url(#arr)"/>
-<path class="fl" d="M 445 452 L 445 470 L 300 470"/>
-<text x="305" y="466" class="lbl-sm">tick = watermark</text>
-
-<rect class="bx-acc" x="180" y="488" width="240" height="44" rx="3"/>
-<text x="300" y="506" class="lbl lbl-c">refresh consumer</text>
-<text x="300" y="522" class="lbl-sm lbl-c">batch boundary = safe</text>
-<path class="fl" d="M 300 532 L 300 550" marker-end="url(#arr)"/>
-
-<rect class="bx-acc" x="180" y="550" width="240" height="44" rx="3"/>
-<text x="300" y="568" class="lbl lbl-c">cagg partials</text>
-<text x="300" y="584" class="lbl-sm lbl-c">finalize_agg(combine_agg(…))</text>
-
-<text x="300" y="630" class="lbl-h lbl-c">[ 03 · COMPRESSION ]</text>
-<rect class="bx" x="180" y="646" width="240" height="40" rx="3"/>
-<text x="300" y="663" class="lbl lbl-c">cold chunk (heap)</text>
-<text x="300" y="678" class="lbl-sm lbl-c">ready for compression</text>
-<path class="fl" d="M 300 686 L 300 704" marker-end="url(#arr)"/>
-
-<rect class="bx-acc" x="160" y="704" width="280" height="44" rx="3"/>
-<text x="300" y="722" class="lbl lbl-c">compression policy</text>
-<text x="300" y="738" class="lbl-sm lbl-c">FOR · dict · null bitmap · lz4</text>
-<path class="fl" d="M 300 748 L 300 766" marker-end="url(#arr)"/>
-
-<rect class="bx-acc" x="100" y="766" width="400" height="48" rx="3"/>
-<text x="300" y="784" class="lbl lbl-c">_compressed sibling</text>
-<text x="300" y="800" class="lbl-sm lbl-c">parallel typed arrays + TOAST · BRIN minmax_multi_ops</text>
-
-<path class="fl" d="M 380 814 L 380 836" marker-end="url(#arr)"/>
-<text x="386" y="827" class="lbl-sm">late writes</text>
-<path class="fl" d="M 250 836 L 250 814" marker-end="url(#arr)"/>
-<text x="135" y="827" class="lbl-sm">recompression merges back</text>
-<rect class="bx-warm" x="220" y="836" width="200" height="42" rx="3"/>
-<text x="320" y="854" class="lbl lbl-c">heap (now staging)</text>
-<text x="320" y="869" class="lbl-sm lbl-c">late writes land here</text>
-
-<text x="300" y="908" class="lbl-h lbl-c">[ 04 · READ PATH ]</text>
-<rect class="bx" x="40" y="918" width="520" height="32" rx="3"/>
-<text x="300" y="938" class="lbl lbl-c">view = heap UNION ALL ( LATERAL unpack(compressed) WHERE BRIN-skip )</text>
+<rect class="b" x="180" y="14" width="160" height="38" rx="3"/>
+<text x="260" y="32" class="t">Application INSERT</text>
+<text x="260" y="46" class="s">into series_table parent</text>
+<path class="f" d="M260 54 L260 70" marker-end="url(#a1)"/>
+<rect class="ba" x="160" y="70" width="200" height="38" rx="3"/>
+<text x="260" y="88" class="t">Native PG row routing</text>
+<text x="260" y="102" class="s">range partition by time</text>
+<path class="f" d="M210 110 L210 130 L150 130 L150 152" marker-end="url(#a1)"/>
+<text x="195" y="125" class="l">yes ↙</text>
+<rect class="b" x="60" y="152" width="180" height="38" rx="3"/>
+<text x="150" y="170" class="t">Chunk heap</text>
+<text x="150" y="184" class="s">pre-created 7 d ahead</text>
+<path class="f" d="M310 110 L310 130 L370 130 L370 152" marker-end="url(#a1)"/>
+<text x="320" y="125" class="l">↘ no</text>
+<rect class="bw" x="280" y="152" width="180" height="38" rx="3"/>
+<text x="370" y="170" class="t">DEFAULT partition</text>
+<text x="370" y="184" class="s">stash · rare miss</text>
+<path class="f" d="M370 190 L370 208" marker-end="url(#a1)"/>
+<rect class="ba" x="280" y="208" width="180" height="36" rx="3"/>
+<text x="370" y="225" class="t">mover job (PgQue tick)</text>
+<text x="370" y="238" class="s">~200 ms · creates + moves</text>
+<path class="f" d="M280 226 L150 226 L150 192" marker-end="url(#a1)"/>
 </svg>
 </div>
-<p class="svg-cap">Write path · cagg flow · compression · read path. Reads union the surviving heap with the compressed sibling via <code>LATERAL</code> after a BRIN-filtered subquery.</p>
+<p>Native PG range partitioning. The PgQue pre-creator stays a week ahead so the hot path is just PG's own row-routing. Misses fall to <code>DEFAULT</code>; a mover job creates the missing partition and moves rows out within ~200 ms — outside the writer's transaction.</p>
+</div>
 
-<h3>Seven architectural pieces</h3>
-<table class="kv-table">
-<tr><td><strong>01 Time partitioning</strong></td><td>Native PG range partitioning. PgQue pre-creator stays a week ahead. <code>DEFAULT</code> stashes misses; mover creates the partition and moves rows out within ~200 ms. Zero PgSeries code on the hot path.</td></tr>
-<tr><td><strong>02 Continuous aggregates</strong></td><td>AFTER STATEMENT triggers feed a PgQue queue plus a data-time invalidation log keyed by <code>(cagg_id, bucket)</code>. PgQue tick = batch boundary = materialization watermark. Backdated UPDATE/DELETE correctly re-materializes past buckets.</td></tr>
-<tr><td><strong>03 Compression</strong></td><td>Cold chunks roll into a parallel <code>_compressed</code> sibling. Segmentby + orderby + parallel typed arrays in TOAST. BRIN <code>minmax_multi_ops</code> on sidecar stats columns. Not a real columnstore — pragmatic workaround.</td></tr>
-<tr><td><strong>04 Late writes</strong></td><td>The chunk heap stays around as the staging area. Two modes: <code>staging</code> (default; recompression merges back) or <code>error</code>. The previous <code>auto_decompress</code> mode is gone.</td></tr>
-<tr><td><strong>05 Embedded PgQue</strong></td><td>PgQue's pgque-core ships vendored at <code>pgseries/_pgque/</code>, schema <code>pgseries_pgque</code>. Three uses: cagg invalidation queue, system_jobs runner, staging→recompression signaling.</td></tr>
-<tr><td><strong>06 Space partitioning</strong></td><td>v0.2. Catalog supports it from day zero (<code>pgseries.dimension</code> rows with <code>dimension_type</code>); chunk identity is a tuple. v0.1 only writes <code>'time'</code> rows; <code>add_dimension()</code> exists and returns a v0.2 error.</td></tr>
-<tr><td><strong>07 Job scheduling</strong></td><td>No PgSeries-specific scheduler. PgQue's ticker model: <code>pg_cron</code>, <code>pg_timetable</code>, or any external driver calling <code>pgque.ticker()</code>. Per-job advisory lock prevents overlapping runs.</td></tr>
-</table>
+<div class="arch-piece">
+<div class="arch-piece-h"><span class="arch-piece-num">02</span><h3>Continuous aggregates · PgQue tick + data-time log</h3></div>
+<div class="mini-svg">
+<svg viewBox="0 0 520 320" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Cagg flow: trigger → PgQue queue + data-time log → refresh → partials</title>
+<defs>
+<marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#847b6a"/>
+</marker>
+<style>
+.b { fill: #faf7f0; stroke: #c2b89e; stroke-width: 1.2; }
+.ba { fill: #e6f0e0; stroke: #1f6f3f; stroke-width: 1.4; }
+.t { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; fill: #1a1714; text-anchor: middle; }
+.s { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; fill: #4a443c; text-anchor: middle; }
+.l { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; fill: #847b6a; text-anchor: middle; }
+.f { fill: none; stroke: #847b6a; stroke-width: 1.2; }
+@media (prefers-color-scheme: dark) {
+  .b { fill: #1c1814; stroke: #423c33; }
+  .ba { fill: #1d2c20; stroke: #6fcf8a; }
+  .t { fill: #ece4d3; }
+  .s { fill: #b9b0a0; }
+  .l, .f { fill: #7a7263; stroke: #7a7263; }
+}
+</style>
+</defs>
+<rect class="b" x="80" y="14" width="360" height="40" rx="3"/>
+<text x="260" y="32" class="t">AFTER STATEMENT trigger (transition tables)</text>
+<text x="260" y="46" class="s">INSERT / UPDATE / DELETE on source</text>
+<path class="f" d="M180 56 L180 80" marker-end="url(#a2)"/>
+<path class="f" d="M340 56 L340 80" marker-end="url(#a2)"/>
+<rect class="ba" x="60" y="80" width="240" height="40" rx="3"/>
+<text x="180" y="98" class="t">PgQue queue</text>
+<text x="180" y="112" class="s">cagg_invalidation_&lt;c&gt;</text>
+<rect class="b" x="320" y="80" width="160" height="40" rx="3"/>
+<text x="400" y="98" class="t">data-time log</text>
+<text x="400" y="112" class="s">dirty buckets</text>
+<path class="f" d="M180 122 L180 152 L260 152 L260 168" marker-end="url(#a2)"/>
+<path class="f" d="M400 122 L400 152 L260 152"/>
+<text x="260" y="146" class="l">tick = watermark</text>
+<rect class="ba" x="140" y="170" width="240" height="40" rx="3"/>
+<text x="260" y="188" class="t">refresh consumer</text>
+<text x="260" y="202" class="s">batch boundary = safe</text>
+<path class="f" d="M260 212 L260 236" marker-end="url(#a2)"/>
+<rect class="ba" x="140" y="236" width="240" height="40" rx="3"/>
+<text x="260" y="254" class="t">cagg partials</text>
+<text x="260" y="268" class="s">finalize_agg(combine_agg(…))</text>
+<text x="260" y="296" class="l">backdated UPDATE/DELETE re-materializes past buckets</text>
+</svg>
+</div>
+<p>Two structures, not one. The PgQue tick gives the safe-batch boundary (no in-flight DML skipped); the data-time log keys dirty buckets by <em>data time</em> so backdated UPDATE/DELETE on a 2022 row correctly re-materializes the 2022 bucket on the next refresh.</p>
+</div>
+
+<div class="arch-piece">
+<div class="arch-piece-h"><span class="arch-piece-num">03</span><h3>Compression · columnar siblings + BRIN skipping</h3></div>
+<div class="mini-svg">
+<svg viewBox="0 0 520 280" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Compression flow: cold chunk → policy → compressed sibling, with staging-heap loop</title>
+<defs>
+<marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#847b6a"/>
+</marker>
+<style>
+.b { fill: #faf7f0; stroke: #c2b89e; stroke-width: 1.2; }
+.ba { fill: #e6f0e0; stroke: #1f6f3f; stroke-width: 1.4; }
+.bw { fill: #f5e8d0; stroke: #c2b89e; stroke-width: 1.2; }
+.t { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; fill: #1a1714; text-anchor: middle; }
+.s { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; fill: #4a443c; text-anchor: middle; }
+.l { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; fill: #847b6a; }
+.f { fill: none; stroke: #847b6a; stroke-width: 1.2; }
+@media (prefers-color-scheme: dark) {
+  .b { fill: #1c1814; stroke: #423c33; }
+  .ba { fill: #1d2c20; stroke: #6fcf8a; }
+  .bw { fill: #2c2317; stroke: #423c33; }
+  .t { fill: #ece4d3; }
+  .s { fill: #b9b0a0; }
+  .l, .f { fill: #7a7263; stroke: #7a7263; }
+}
+</style>
+</defs>
+<rect class="b" x="180" y="14" width="160" height="38" rx="3"/>
+<text x="260" y="32" class="t">cold chunk (heap)</text>
+<text x="260" y="46" class="s">ready for compression</text>
+<path class="f" d="M260 54 L260 72" marker-end="url(#a3)"/>
+<rect class="ba" x="120" y="72" width="280" height="40" rx="3"/>
+<text x="260" y="90" class="t">compression policy</text>
+<text x="260" y="104" class="s">FOR · dict · null bitmap · lz4</text>
+<path class="f" d="M260 114 L260 132" marker-end="url(#a3)"/>
+<rect class="ba" x="60" y="132" width="400" height="48" rx="3"/>
+<text x="260" y="152" class="t">_compressed sibling</text>
+<text x="260" y="168" class="s">parallel typed arrays + TOAST · BRIN minmax_multi_ops</text>
+<path class="f" d="M340 180 L340 220" marker-end="url(#a3)"/>
+<text x="350" y="204" class="l">late writes ↓</text>
+<path class="f" d="M180 220 L180 180" marker-end="url(#a3)"/>
+<text x="48" y="204" class="l">↑ recompression merges back</text>
+<rect class="bw" x="180" y="220" width="200" height="40" rx="3"/>
+<text x="280" y="238" class="t">heap (now staging)</text>
+<text x="280" y="252" class="s">late writes land here</text>
+</svg>
+</div>
+<p>Cold chunks roll into a parallel <code>_compressed</code> sibling — segmentby + orderby + parallel typed arrays in TOAST, BRIN <code>minmax_multi_ops</code> on sidecar stats columns. Not a real columnstore (only a C extension can give you that); pragmatic 2–4× on mixed metric workloads. Late writes go to the heap-as-staging area; recompression merges them back. Two siblings per chunk, not three.</p>
+</div>
+
+<div class="arch-piece">
+<div class="arch-piece-h"><span class="arch-piece-num">04</span><h3>Read path · LATERAL after BRIN-filtered subquery</h3></div>
+<div class="mini-svg">
+<svg viewBox="0 0 520 200" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Read path: heap UNION ALL LATERAL unpack(compressed) WHERE BRIN-skip</title>
+<defs>
+<marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#847b6a"/>
+</marker>
+<style>
+.b { fill: #faf7f0; stroke: #c2b89e; stroke-width: 1.2; }
+.ba { fill: #e6f0e0; stroke: #1f6f3f; stroke-width: 1.4; }
+.t { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; fill: #1a1714; text-anchor: middle; }
+.s { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; fill: #4a443c; text-anchor: middle; }
+.f { fill: none; stroke: #847b6a; stroke-width: 1.2; }
+@media (prefers-color-scheme: dark) {
+  .b { fill: #1c1814; stroke: #423c33; }
+  .ba { fill: #1d2c20; stroke: #6fcf8a; }
+  .t { fill: #ece4d3; }
+  .s { fill: #b9b0a0; }
+  .f { fill: #7a7263; stroke: #7a7263; }
+}
+</style>
+</defs>
+<rect class="b" x="40" y="20" width="200" height="40" rx="3"/>
+<text x="140" y="38" class="t">heap</text>
+<text x="140" y="52" class="s">hot · or staging when cold</text>
+<rect class="b" x="280" y="20" width="200" height="40" rx="3"/>
+<text x="380" y="38" class="t">_compressed sibling</text>
+<text x="380" y="52" class="s">filtered subquery + BRIN skip</text>
+<path class="f" d="M140 60 L140 90 L260 90 L260 110" marker-end="url(#a4)"/>
+<path class="f" d="M380 60 L380 90 L260 90"/>
+<text x="195" y="86" class="s">UNION ALL</text>
+<text x="335" y="86" class="s">LATERAL unpack(...)</text>
+<rect class="ba" x="100" y="110" width="320" height="48" rx="3"/>
+<text x="260" y="130" class="t">view = heap UNION ALL ( LATERAL unpack(...) )</text>
+<text x="260" y="146" class="s">partition pruning + BRIN minmax_multi_ops</text>
+<text x="260" y="186" class="s">CI plan-shape test asserts both</text>
+</svg>
+</div>
+<p>Reads union the surviving heap with the compressed sibling via <code>LATERAL</code> after a filtered subquery, so the planner can prune partitions and use BRIN <em>before</em> any unnest fires. A pgTAP plan-shape test asserts both in CI.</p>
+</div>
+
+<div class="arch-piece">
+<div class="arch-piece-h"><span class="arch-piece-num">05</span><h3>Embedded PgQue · vendored, three uses</h3></div>
+<p>PgQue's pgque-core ships vendored at <code>pgseries/_pgque/</code> in schema <code>pgseries_pgque</code>. Three places use it: cagg invalidation queue (above), <code>system_jobs</code> runner (per-job advisory lock prevents overlapping runs), and staging→recompression signaling.</p>
+</div>
+
+<div class="arch-piece">
+<div class="arch-piece-h"><span class="arch-piece-num">06</span><h3>Space partitioning · catalog-ready, API in v0.2</h3></div>
+<p>Catalog supports it from day zero: <code>pgseries.dimension</code> rows with <code>dimension_type</code>, chunk identity is a tuple. v0.1 only writes <code>'time'</code> rows; <code>add_dimension()</code> exists and returns a v0.2 error.</p>
+</div>
+
+<div class="arch-piece">
+<div class="arch-piece-h"><span class="arch-piece-num">07</span><h3>Job scheduling · PgQue ticker, no PgSeries scheduler</h3></div>
+<p>No PgSeries-specific scheduler. Drive PgQue's ticker model from <code>pg_cron</code>, <code>pg_timetable</code>, or any external loop calling <code>pgque.ticker()</code>. Per-job advisory lock prevents overlapping runs.</p>
+</div>
 </section>
 
-<section class="brief-section brief-section-generic" id="s-scope">
-<h2><span class="n">04</span><span>Scope</span></h2>
-<div class="scope-grid">
-<div class="scope-col in">
-<h3>In scope <span class="pill">v0.1</span></h3>
-<ul>
-<li>Hypertables (series tables), chunks</li>
-<li>Retention, compression, recompression policies</li>
-<li>Continuous aggregates with partial-form storage</li>
-<li>Real-time aggregation across the watermark</li>
-<li>Hierarchical caggs (fixed-width and calendar-width)</li>
-<li>Columnar compression (segmentby + orderby + FOR + dict + lz4)</li>
-<li><code>time_bucket()</code>, <code>time_bucket_gapfill()</code></li>
-<li><code>first()</code> / <code>last()</code> with combinefuncs</li>
-<li>BRIN <code>minmax_multi_ops</code> data skipping</li>
-<li>Job scheduler via PgQue ticker</li>
-<li><code>show_chunks</code> / <code>drop_chunks</code> / <code>refresh_continuous_aggregate</code></li>
-<li><code>pgseries_information</code> views</li>
-<li>Per-chunk parallel <code>pg_dump</code> migration</li>
-<li>Three roles: reader / writer / admin</li>
-</ul>
-</div>
-<div class="scope-col out">
-<h3>Out of scope <span class="pill">v0.1 or never</span></h3>
-<ul>
-<li>Bit-level codecs (Gorilla, delta-delta, simple-8b)</li>
-<li>Custom planner / executor nodes</li>
-<li>True columnar storage</li>
-<li>Distributed hypertables</li>
-<li>Tiered storage to object storage</li>
-<li>Promscale-style ingest caggs</li>
-<li>Space partitioning (<code>add_dimension</code>) — v0.2</li>
-<li>Hypertable → series_table in-place converter</li>
-<li>FK cascades into source tables — v0.2</li>
-<li>PostgreSQL 16 or older</li>
-<li>Direct-to-leaf-partition writes</li>
-</ul>
-</div>
-</div>
-<p class="brief-warning"><strong>Partial / lossy.</strong> Hyperfunctions (use PG built-ins), <code>tdigest</code> (deferred; <code>hll</code> only), multi-group <code>time_bucket_gapfill</code>, lossless float compression (Gorilla unavailable), and certain cagg select-list shapes (<code>HAVING</code>, <code>ROLLUP</code>/<code>CUBE</code>, window functions, aggregates without combinefuncs).</p>
-</section>
-
-<section class="brief-section brief-section-generic" id="s-decisions">
-<h2><span class="n">05</span><span>Decisions</span></h2>
+<section class="brief-section brief-section-generic" id="s-decisions" data-sec="04">
+<h2><span class="n">04</span><span>Decisions</span></h2>
 <p>Eight architectural decisions from the spec, in order.</p>
 <ol class="decisions">
 <li class="decision">
@@ -667,8 +745,8 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </ol>
 </section>
 
-<section class="brief-section brief-section-open-questions" id="s-open">
-<h2><span class="n">06</span><span>Open questions</span></h2>
+<section class="brief-section brief-section-open-questions" id="s-open" data-sec="05">
+<h2><span class="n">05</span><span>Open questions</span></h2>
 <p>Decisions in flight before v0.1 ships.</p>
 <ul class="callout-list">
 <li>Default chunk size: time-based (1 day), row-based (~3 × 10<sup>7</sup>), or adaptive? At 10<sup>10</sup>-row scale the two converge on ~1 day.</li>
@@ -685,8 +763,8 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </ul>
 </section>
 
-<section class="brief-section brief-section-risks" id="s-risks">
-<h2><span class="n">07</span><span>Risks &amp; failure modes</span></h2>
+<section class="brief-section brief-section-risks" id="s-risks" data-sec="06">
+<h2><span class="n">06</span><span>Risks &amp; failure modes</span></h2>
 <p><strong>Past 10<sup>10</sup> rows on a single instance, two things break first.</strong></p>
 <ul class="callout-list bad">
 <li><strong>Cagg refresh latency on dense backfills.</strong> The invalidation log gets dense; tunable via <code>coalesce_interval</code> and the refresh window.</li>
@@ -702,9 +780,9 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </ul>
 </section>
 
-<section class="brief-section brief-section-generic fmap" id="s-mapping">
-<h2><span class="n">08</span><span>Feature mapping (TimescaleDB users)</span></h2>
-<p>Reference for readers familiar with TimescaleDB's surface, so you can tell at a glance what maps to what. Not a parity goal — the real commitments are in <em>Architecture</em> and <a href="./SPEC.md">SPEC.md</a>.</p>
+<section class="brief-section brief-section-generic fmap" id="s-mapping" data-sec="07">
+<h2><span class="n">07</span><span>Feature mapping (TimescaleDB users)</span></h2>
+<p>Every TimescaleDB surface, with its PgSeries equivalent (or honest "no" with a reason). Three buckets — supported, partial, out of scope. Click to expand.</p>
 
 <details open>
 <summary><span>Supported in v0.1</span><span class="pill">21 mappings</span></summary>
@@ -726,7 +804,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <tr><td><code>first()</code> / <code>last()</code></td><td>Pure-SQL custom aggregates with combinefuncs</td></tr>
 <tr><td>Chunk exclusion</td><td>Partition pruning + BRIN <code>minmax_multi_ops</code> + view-layer pushdown via <code>LATERAL</code></td></tr>
 <tr><td>Job scheduler</td><td>PgQue ticker (<code>pg_cron</code>, <code>pg_timetable</code>, external driver); per-job advisory lock</td></tr>
-<tr><td><code>timescaledb_information</code></td><td><code>pgseries_information.{jobs, job_stats, job_errors, chunks, chunks_detailed_size, hypertable_size, compression_settings, compressed_chunk_stats, continuous_aggregates, cagg_lag, default_partition_lag}</code></td></tr>
+<tr><td><code>timescaledb_information</code></td><td><code>pgseries_information</code> views: jobs, job_stats, job_errors, chunks, chunks_detailed_size, hypertable_size, compression_settings, compressed_chunk_stats, continuous_aggregates, cagg_lag, default_partition_lag</td></tr>
 <tr><td><code>ts_insert_blocker</code></td><td><code>error</code>-mode write trigger (default mode is staging-via-heap)</td></tr>
 <tr><td><code>show_chunks</code> / <code>drop_chunks</code></td><td>Same names</td></tr>
 <tr><td><code>refresh_continuous_aggregate</code></td><td>Same name, same call shape</td></tr>
@@ -768,8 +846,8 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </details>
 </section>
 
-<section class="brief-section brief-section-generic" id="s-acceptance">
-<h2><span class="n">09</span><span>Acceptance criteria</span></h2>
+<section class="brief-section brief-section-generic" id="s-acceptance" data-sec="08">
+<h2><span class="n">08</span><span>Acceptance criteria</span></h2>
 <p>Each criterion is either a CI-checkable artifact or a benchmark with a reportable number. v0.1 doesn't ship until every item is green on PG 17 and PG 18.</p>
 <ol class="accept-list">
 <li><strong>Install.</strong> <code>\i pgseries.sql</code> installs cleanly on PG 17 and PG 18 in a single transaction. Bundle includes pgque-core into a <code>pgseries_pgque</code> schema.</li>
@@ -792,7 +870,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </section>
 
 <footer class="brief-provenance">
-<p>Generated as if by <code>samospec brief --ai pgseries</code> following the <code>GEN_PROMPT</code> in <a href="https://github.com/NikolayS/samospec/pull/162">SamoSpec PR #162</a> (head <code>ea6e213</code>). Heuristic-renderer chrome (CSS · metabar · theme switch · reading-progress · numbered sections) preserved verbatim from the tool's output; section bodies hand-curated from <a href="./SPEC.md">SPEC.md</a> in lieu of <code>--ai</code> mode (which requires a <code>claude</code>-CLI subprocess that fails as root in this sandbox).</p>
+<p>Generated as if by <code>samospec brief --ai pgseries</code> following the <code>GEN_PROMPT</code> in <a href="https://github.com/NikolayS/samospec/pull/162">SamoSpec PR #162</a> (head <code>ea6e213</code>). Heuristic-renderer chrome (CSS · metabar · theme switch · reading-progress · numbered sections · scroll-spy) preserved verbatim from the tool's output; section bodies hand-curated from <a href="./SPEC.md">SPEC.md</a> in lieu of <code>--ai</code> mode (which fails as root in this sandbox).</p>
 <p>Re-run after each <code>samospec publish</code> to refresh. Canonical document: <a href="./SPEC.md">SPEC.md</a>.</p>
 </footer>
 </main>
@@ -805,9 +883,23 @@ apply(s);
 bs.forEach(function(b){b.addEventListener('click',function(){
   var v=b.dataset.v||'auto';localStorage.setItem('brief-theme',v);apply(v);});});
 var bar=document.getElementById('pb');
-if(bar){var upd=function(){var m=document.body.scrollHeight-window.innerHeight;
-  bar.style.width=(m>0?window.scrollY/m*100:0)+'%';};
-  window.addEventListener('scroll',upd,{passive:true});upd();}
+function upd(){
+  var m=document.body.scrollHeight-window.innerHeight;
+  if(bar)bar.style.width=(m>0?window.scrollY/m*100:0)+'%';
+  // scroll-spy
+  var secs=document.querySelectorAll('section[data-sec]');
+  var top=window.scrollY+120, cur=null;
+  secs.forEach(function(s){if(s.offsetTop<=top)cur=s;});
+  if(cur){
+    var n=cur.dataset.sec, name=cur.querySelector('h2 span:last-child').textContent;
+    document.querySelectorAll('.brief-toc a').forEach(function(a){
+      a.classList.toggle('active', a.dataset.sec===n);});
+    var st=document.querySelector('.metabar .status');
+    if(st){st.classList.add('has-section');
+      st.innerHTML='<span class="sec-num">'+n+'</span>'+name;}
+  }
+}
+window.addEventListener('scroll',upd,{passive:true});upd();
 })();</script>
 </body>
 </html>
