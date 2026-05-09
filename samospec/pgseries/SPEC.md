@@ -25,7 +25,18 @@ engine is **embedded** for the snapshot/tick semantics that
 continuous aggregates and the job scheduler need (see
 *Architecture › Embedded PgQue*).
 
-### Related work
+## Goal
+
+PgSeries delivers TimescaleDB-shape time-series ergonomics on any
+Postgres 17+ — managed, self-hosted, or laptop — using only pure SQL
+and PL/pgSQL. The single-file install gives users hypertables,
+continuous aggregates, columnar compression, and retention policies
+under the same names and call shapes TimescaleDB users already know,
+trading the ratio of C-extension columnstores for the reach of
+"runs anywhere Postgres runs". v0.1 is sized for 10 billion rows in
+a single series table on a single managed-PG instance.
+
+## Related work
 
 PgSeries isn't the first attempt to bring time-series ergonomics to
 managed Postgres without TimescaleDB's TSL. The closest in spirit
@@ -247,15 +258,16 @@ The check is part of the `chunk_lease` state-machine transition.
 
 ### 3. Compression — columnar siblings, BRIN-skipping, no planner hooks
 
-**This is not a real columnstore.** PG core doesn't ship one, and
-pure SQL can't build one — only a C extension (Citus columnar,
-Hydra columnar, pg_timeseries which wraps Citus) can give you
-"true" column-major storage with vectorized scans. PgSeries is a
-pragmatic workaround: parallel typed arrays in TOAST, BRIN-driven
-segment skipping, and a view-layer rewrite. It gets you 2–4× ratio
-on metric-shape data and partition-pruning-class scan latency on
-cold data, on any PG. That's the whole pitch — and it's enough
-for analytics.
+PgSeries gives compressed read paths and policy-driven roll-up of
+cold chunks without being a real columnstore. PG core doesn't ship
+one, and pure SQL can't build one — only a C extension (Citus
+columnar, Hydra columnar, pg_timeseries which wraps Citus) can give
+you true column-major storage with vectorized scans. The pragmatic
+workaround used here is parallel typed arrays in TOAST, BRIN-driven
+segment skipping, and a view-layer rewrite. It hits 2–4× ratio on
+metric-shape data and partition-pruning-class scan latency on cold
+data, on any PG. That's the whole pitch — and it's enough for
+analytics.
 
 **Two siblings per chunk, not three.** When a chunk gets
 compressed, its heap stays around — empty under the steady state
@@ -418,8 +430,8 @@ where TimescaleDB allows it; that was wrong.
 
 ### 5. Embedded PgQue — three uses, one engine
 
-PgQue's pgque-core is **vendored** into the PgSeries install bundle
-as `pgseries/_pgque/`. The single-file install
+PgQue's pgque-core ships vendored inside the PgSeries install bundle
+at `pgseries/_pgque/`. The single-file install
 (`\i pgseries.sql`) loads PgQue first, then PgSeries on top. The
 schema is `pgseries_pgque` so it doesn't collide with a user's
 existing PgQue install in the same database. PgQue is pinned to a
@@ -496,6 +508,13 @@ in fixed steps independent of run latency); `floating_schedule =>
 true` opts into next-run = last-finish + interval.
 
 ## Detailed design
+
+The subsections below expand on the architecture above in the same
+order: series tables, retention, continuous aggregates, compression
+pipeline, BRIN data skipping, the read view, the compression swap,
+write paths on compressed chunks, time helpers, aggregates, the
+operational surface, migration, and roles. Anything load-bearing
+ends up with an acceptance criterion below.
 
 ### Series tables
 
@@ -783,6 +802,11 @@ goal — the real commitments are in *Architecture* and
 
 ## Non-goals
 
+PgSeries declines to compete with C-extension columnstores on raw
+ratio or scan speed, with TimescaleDB on its own deepest features,
+and with itself on going past v0.1's headline scale without the
+v0.2 escape hatch. Specific lines:
+
 - Match TimescaleDB-class **8–15×** compression ratios on metric
   workloads. Target 2–4×. Bit-level codecs are not feasible in
   PL/pgSQL.
@@ -802,6 +826,10 @@ goal — the real commitments are in *Architecture* and
   wouldn't see them).
 
 ## Acceptance criteria
+
+Each criterion below is either a CI-checkable artifact or a
+benchmark with a reportable number. v0.1 doesn't ship until every
+item is green on PG 17 and PG 18.
 
 - **Install.** `\i pgseries.sql` installs cleanly on stock PG 17
   and PG 18 in a single transaction. Bundle includes pgque-core
@@ -868,6 +896,10 @@ goal — the real commitments are in *Architecture* and
   regression tests against PG 17 and PG 18.
 
 ## Open questions
+
+Decisions still in flight before v0.1 ships. Each will be resolved
+either in code, in a follow-up review round, or by punting to v0.2
+with a clear documented default.
 
 - Default chunk size: time-based (1 day), row-based (~3 × 10⁷),
   or adaptive? At the 10¹⁰-row target the two converge on ~1 day.
