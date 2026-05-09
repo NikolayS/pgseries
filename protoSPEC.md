@@ -21,7 +21,8 @@ install (`\i pgseries.sql`), no C code of our own, no
   `resume_job()`.
 
 PostgreSQL 15+ (PG 14 lacks `lz4` as default TOAST compression and
-`MERGE`; PG 17's `MERGE/SPLIT PARTITION` used opportunistically).
+`MERGE`; PG 17's `MERGE/SPLIT PARTITION` used opportunistically; PG 18
+is the latest stable and the reference for the scale benchmark).
 `track_commit_timestamp = on` is required for the cagg watermark; the
 installer checks and errors loudly if it is off.
 
@@ -60,11 +61,11 @@ when rows-per-chunk pushes past the compression-throughput budget.
 
 The reference machine for the 10¹⁰-row scale benchmark (see
 *Acceptance criteria*) is a single self-hosted instance with **local
-NVMe** storage and **~128 GiB RAM**, running PG 17. Local NVMe is
-deliberate: the benchmark measures what the architecture can do on
-real hardware, not what cloud-attached block storage allows; smoke
-tests on managed providers (which don't expose local NVMe) cover the
-deployment path separately.
+NVMe** storage and **~128 GiB RAM**, running **PG 18** (the latest
+stable). Local NVMe is deliberate: the benchmark measures what the
+architecture can do on real hardware, not what cloud-attached block
+storage allows; smoke tests on managed providers (which don't expose
+local NVMe) cover the deployment path separately.
 
 ## Privileges
 
@@ -561,7 +562,7 @@ workaround for "too many series".
   percentile over 10 runs): create series table, ingest 10M rows, add
   retention + cagg + compression + recompression policies, verify each
   runs under `pg_cron` AND under `pgseries.run_due_jobs()`.
-- **Scale benchmark**: a single self-hosted PG 17 instance ingests
+- **Scale benchmark**: a single self-hosted **PG 18** instance ingests
   **10¹⁰ rows** into one series table over 30 days of synthetic
   metric workload, with retention + cagg + compression + recompression
   policies all running. **Reference hardware**: local NVMe storage
