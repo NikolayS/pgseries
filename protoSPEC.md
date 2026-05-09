@@ -29,9 +29,10 @@ continuous aggregates and the job scheduler need (see
 
 PgSeries isn't the first attempt to bring time-series ergonomics to
 managed Postgres without TimescaleDB's TSL. The closest in spirit
-is **[pg_timeseries](https://tembo.io/blog/pg-timeseries)** (Tembo,
-PostgreSQL license) — a real C extension that wraps **Citus
-columnar** for compression. If your provider allows installing it,
+is **[pg_timeseries](https://github.com/ChuckHend/pg_timeseries)**
+(PostgreSQL license; originally Tembo, community-maintained after
+Tembo's closure) — a real C extension that wraps **Citus columnar**
+for compression. If your provider allows installing it,
 pg_timeseries will compress harder than PgSeries can; Citus columnar
 is a real columnstore, parallel-arrays-in-TOAST is not.
 
