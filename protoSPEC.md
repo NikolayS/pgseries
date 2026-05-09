@@ -25,6 +25,32 @@ engine is **embedded** for the snapshot/tick semantics that
 continuous aggregates and the job scheduler need (see
 *Architecture › Embedded PgQ*).
 
+### Related work
+
+PgSeries isn't the first attempt to bring time-series ergonomics to
+managed Postgres without TimescaleDB's TSL. The closest in spirit
+is **[pg_timeseries](https://tembo.io/blog/pg-timeseries)** (Tembo,
+PostgreSQL license) — a real C extension that wraps **Citus
+columnar** for compression. If your provider allows installing it,
+pg_timeseries will compress harder than PgSeries can; Citus columnar
+is a real columnstore, parallel-arrays-in-TOAST is not.
+
+PgSeries trades raw ratio for **reach**. Zero extensions of our own
+means it runs on:
+
+- locked-down RDS parameter groups that ban third-party extensions,
+- providers that haven't whitelisted pg_timeseries / Citus columnar,
+- internal-policy environments that allow only PG built-ins,
+- ad-hoc PG clusters where the operator can't restart for
+  `shared_preload_libraries`.
+
+The honest pitch: pg_timeseries when you can install it, PgSeries
+when you can't (or when the operational simplicity of "it's just
+SQL" is itself the win). Both projects exist because the gap they
+target is real: TimescaleDB's TSL puts compression and incremental
+caggs out of reach for a lot of teams, and PG core doesn't ship a
+proper columnstore yet.
+
 ## Scale target
 
 **v0.1 is sized for 10¹⁰ rows in a single series table** on a single
@@ -47,6 +73,14 @@ retention:
 Past 10¹⁰ on a single instance, two things break first: cagg refresh
 on dense backfills (tunable), and PL/pgSQL compression throughput
 per chunk (degrades gracefully to slower, never wrong).
+
+The BRIN + range-partitioning pattern PgSeries leans on for both
+ingestion and skipping is **well-established prior art**: operators
+routinely run ~10⁹ rows/day on plain partitioned heaps with BRIN
+indexes and no compression at all. PgSeries layers the columnar
+sibling and view-layer predicate rewrite on top of that proven base
+— it doesn't bet on anything PG itself hasn't already shown to
+scale.
 
 **Reference machine for the scale benchmark**: single self-hosted
 PG 18 instance with **local NVMe** storage and **~128 GiB RAM**.
@@ -136,6 +170,16 @@ not fixed-width and are forbidden in cagg parents in v0.1.
 
 ### 3. Compression — columnar siblings, BRIN-skipping, no planner hooks
 
+**This is not a real columnstore.** PG core doesn't ship one, and
+pure SQL can't build one — only a C extension (Citus columnar,
+Hydra columnar, pg_timeseries which wraps Citus) can give you
+"true" column-major storage with vectorized scans. PgSeries is a
+pragmatic workaround: parallel typed arrays in TOAST, BRIN-driven
+segment skipping, and a view-layer rewrite. It gets you 3–6× ratio
+and partition-pruning-class scan latency on cold data, on any PG.
+That's the whole pitch — and it's enough for analytics on
+metrics-shape data.
+
 Cold chunks are rolled into a parallel `_compressed` table that is
 itself partitioned with the same time bounds. Each compressed row
 holds N source rows, laid out columnar:
@@ -186,8 +230,10 @@ partitions.
 integer/timestamp telemetry. Bit-level codecs (Gorilla,
 delta-delta, simple-8b) would give higher ratios but their
 PL/pgSQL per-value overhead inverts the economics. Float columns
-without lossy requantization compress closer to 2×. Benchmarks
-report per-column-type breakdown.
+without lossy requantization compress closer to 2×. Real
+columnstores (Citus columnar, pg_timeseries) will beat these
+numbers on installs that allow them. Benchmarks report
+per-column-type breakdown.
 
 **Compression swap** takes a short `AccessExclusive` lock on the
 parent under `set local lock_timeout = '1s'`, performs the heap
@@ -485,6 +531,9 @@ Job control: `alter_job`, `pause_job`, `resume_job`, `run_job_now`.
   parallel dump-and-restore is far faster than a single `COPY`.
   `scripts/migrate-from-hypertable.sh` enumerates source chunks,
   dumps in parallel, and restores into a fresh series table.
+- From `pg_timeseries`: tables are plain partitioned PG tables, so
+  `pgseries.adopt_partitioned_table()` works in place once the
+  Citus columnar columns are decompressed back to heap.
 - Fallback: `COPY` into a fresh series table.
 
 ### Roles
@@ -538,7 +587,7 @@ goal — the real commitments are in *Architecture* and
 | Multi-group `time_bucket_gapfill` | Single-group-key only in v0.1. |
 | Lossless float compression | Gorilla unavailable in PL/pgSQL; v0.1 ships only opt-in lossy requantization. Floats compress closer to 2× without it. |
 | Cagg select-list shapes | `HAVING`, `GROUPING SETS`/`ROLLUP`/`CUBE`, and window functions rejected by `add_continuous_aggregate()`. Wrap the cagg view in a regular view to apply them at query time. |
-| Compression ratio | Target **3–6×** (vs Timescale's 10–20× with bit-level codecs). |
+| Compression ratio | Target **3–6×** (vs Timescale's 10–20× with bit-level codecs; vs pg_timeseries' Citus-columnar numbers). |
 
 ### Out of scope (v0.1 or never)
 
@@ -546,6 +595,7 @@ goal — the real commitments are in *Architecture* and
 |---|---|
 | Bit-level codecs (Gorilla, delta-delta, simple-8b) | Never in pure SQL. Per-value PL/pgSQL overhead inverts the economics. |
 | Custom planner/executor nodes (vectorized scan, chunk-exclusion hooks, constraint-aware parallel append) | Never without C. Replaced (imperfectly) by partition pruning + BRIN + `LATERAL`. |
+| True columnar storage | Out of scope for v0.1. Real columnstores (Citus columnar via pg_timeseries, Hydra) require an extension. PgSeries' parallel-arrays-in-TOAST is the pragmatic workaround. |
 | Distributed hypertables | Out of scope. Deprecated upstream as of TimescaleDB 2.14. |
 | Tiered storage to object storage | Out of scope. Requires custom storage hooks. |
 | Promscale-style ingest caggs | Out of scope. Requires the bypassed insert path. |
@@ -556,6 +606,9 @@ goal — the real commitments are in *Architecture* and
 
 - Match TimescaleDB-class **10–20×** compression ratios. Target
   3–6×. Bit-level codecs are not feasible in PL/pgSQL.
+- Beat `pg_timeseries` / Citus columnar on raw compression ratio
+  or vectorized-scan latency. Pure SQL can't; that's not where
+  PgSeries competes.
 - Match TimescaleDB scan latency on compressed data. Target:
   queries filter through BRIN + partition pruning before
   unnesting; that's enough for analytics, not for sub-millisecond
@@ -594,7 +647,13 @@ goal — the real commitments are in *Architecture* and
   floor pinned after the first dry-run.
 - **Compression benchmark.** NYC taxi + devops-metrics public
   datasets: ratio (heap + TOAST, excl. indexes) and scan latency
-  on PgSeries vs uncompressed PG, broken down by column type.
+  on PgSeries vs uncompressed PG vs **`pg_timeseries`** (Citus
+  columnar) on a self-hosted PG with the latter installed,
+  broken down by column type. PgSeries is expected to lose the
+  ratio comparison; the reportable result is *how much*, and
+  whether PgSeries' BRIN-skipping scan latency stays within an
+  acceptable factor of pg_timeseries' vectorized scans on the
+  range-query workload.
 - **Cagg correctness.** Out-of-order writes within `refresh_lag`
   are reconciled by the next refresh; writes outside the window
   appear in `pgseries_information.cagg_lag`. Straddle-bucket test
@@ -642,3 +701,11 @@ goal — the real commitments are in *Architecture* and
 - v0.2 `add_dimension` API shape: hash partitions only, or hash +
   range? List partitioning is rare in time-series and probably
   out of scope.
+- **Future direction:** PgSeries-as-default-storage +
+  DuckDB/Apache-Arrow-as-acceleration on installs that allow
+  extensions. The pure-SQL pipeline becomes the compatibility
+  floor; a v0.3+ "fast path" reads the same compressed siblings
+  through DuckDB for vectorized scans. Out of scope for v0.1, but
+  the compression layout (parallel typed arrays + BRIN sidecars)
+  is intentionally chosen so an Arrow-shaped reader can map onto
+  it later.
