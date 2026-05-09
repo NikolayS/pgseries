@@ -1,384 +1,397 @@
-# PgSeries — managed-PG-compatible time-series layer
+# PgSeries — time-series for any Postgres
 
-## Problem
+## What this is
 
-TimescaleDB delivers hypertables, continuous aggregates, retention, and
-columnar compression — but ships as a C extension requiring
-`shared_preload_libraries`, so it's unavailable on most managed Postgres
-(RDS, Aurora, Cloud SQL, AlloyDB, Supabase, Neon, Crunchy Bridge).
+A pure-SQL/PL-pgSQL time-series layer for Postgres 17+. Single-file
+install (`\i pgseries.sql`). No C of our own. No
+`shared_preload_libraries`. No restart. Apache-2.0.
 
-## Goal
+It runs anywhere Postgres runs: any provider, any tier, any version
+17 or newer. No vendor approval, no license carve-out, no parameter
+group to edit, no support ticket. The install is one transaction; the
+uninstall is one drop schema.
 
-A pure-SQL/PL-pgSQL time-series layer in the PgQue style: single-file
-install (`\i pgseries.sql`), no C code of our own, no
-`shared_preload_libraries`, no restart. Two layers:
-
-- **pgseries-core:** chunk lifecycle, retention, rollup engine,
-  compression pipeline.
-- **pgseries-api:** `create_series_table()`, `add_continuous_aggregate()`,
-  `add_retention_policy()`, `add_compression_policy()`,
-  `add_recompression_policy()`, `alter_job()`, `pause_job()`,
-  `resume_job()`.
-
-PostgreSQL 15+ (PG 14 lacks `lz4` as default TOAST compression and
-`MERGE`; PG 17's `MERGE/SPLIT PARTITION` used opportunistically; PG 18
-is the latest stable and the reference for the scale benchmark).
-`track_commit_timestamp = on` is required for the cagg watermark; the
-installer checks and errors loudly if it is off.
+PgSeries is the time-series sibling of [PgQue](https://github.com/NikolayS/PgQue):
+same install model, same Apache-2.0 license, same "anti-extension"
+posture. PgQue's PgQ engine is **embedded** inside PgSeries — the
+snapshot/tick semantics that PgQ has run in production since 2007
+are exactly what continuous aggregates and the job scheduler need
+(see *Architecture › Embedded PgQ*).
 
 ## Scale target
 
 **v0.1 is sized for 10¹⁰ rows in a single series table** on a single
-managed-PG instance. This is the design target every other number in
-this spec is derived against.
+managed-PG instance. Every other number in this spec is derived
+against that target.
 
 Working back from 10B rows, with default 1-day chunks and 1-year
 retention:
 
-- **365 chunks** (one per day), ~**2.7 × 10⁷ rows per chunk** at the
-  steady-state ingest rate.
-- Average ingest **~317 rows/sec** at uniform load; bursts to single-
-  digit kilo-rows/sec are absorbed by partition pruning + the staging
-  sibling (§5).
-- Raw heap+TOAST ~**320 GiB** at 32 B/row; with the 3–6× compression
-  target, **~55–105 GiB** on disk.
-- Per-chunk segmentby cardinality cap **~10⁴** (§4) → at most ~2 700
-  rows/segment/day on average. That keeps FOR encoding economical and
-  the segments large enough for `lz4` to fire.
+| | |
+|---|---|
+| Chunks | **365** (one per day) |
+| Rows per chunk | ~**2.7 × 10⁷** |
+| Average ingest | **~317 rows/sec** uniform |
+| Raw heap+TOAST | ~**320 GiB** at 32 B/row |
+| Compressed (3–6×) | **~55–105 GiB** |
+| Per-chunk segmentby cap | **~10⁴** (compression-ratio constraint) |
 
 10⁸–10⁹ rows is the easy case the same code handles without tuning.
-Past 10¹⁰ rows on a single instance, two things break first:
+Past 10¹⁰ on a single instance, two things break first: cagg refresh
+on dense backfills (tunable), and PL/pgSQL compression throughput
+per chunk (degrades gracefully to slower, never wrong).
 
-1. cagg refresh latency on multi-day backfills (the invalidation log
-   gets dense; tunable via `coalesce_interval` and refresh window),
-2. compression throughput (PL/pgSQL group-by-segmentby on a single
-   chunk costs O(rows/chunk); 27M rows/chunk is benchmarkable in
-   minutes, not hours, but >10⁸ rows/chunk would not be).
-
-Both bottlenecks degrade gracefully — they get slower, not wrong —
-and `add_dimension` (space partitioning) is the v0.2 escape hatch
-when rows-per-chunk pushes past the compression-throughput budget.
-
-The reference machine for the 10¹⁰-row scale benchmark (see
-*Acceptance criteria*) is a single self-hosted instance with **local
-NVMe** storage and **~128 GiB RAM**, running **PG 18** (the latest
-stable). Local NVMe is deliberate: the benchmark measures what the
+**Reference machine for the scale benchmark**: single self-hosted
+PG 18 instance with **local NVMe** storage and **~128 GiB RAM**.
+Local NVMe is deliberate — the benchmark measures what the
 architecture can do on real hardware, not what cloud-attached block
-storage allows; smoke tests on managed providers (which don't expose
-local NVMe) cover the deployment path separately.
+storage allows. Smoke tests on managed providers cover the
+deployment path separately.
 
-## Privileges
+## Architecture
 
-PgSeries needs no `shared_preload_libraries` of its own, but the
-recommended scheduler is `pg_cron` (which does); a cron-free fallback
-exposes `pgseries.run_due_jobs()` as a SQL function callable from any
-external scheduler.
+Each of the four big problems gets its own subsection here. Detailed
+design lives in *Detailed design* further down; this section is the
+map.
 
-## Naming
+### 1. Time partitioning — pre-create ahead, default-partition catches misses
 
-- `pgseries` — schema, package, repo, CLI, function prefix
-- `PgSeries` — prose, headings, README
+Series tables are native PG range-partitioned tables on the time
+column. A cron job pre-creates partitions ahead of the write
+frontier — typically a week ahead at default settings — so the hot
+path is just PG's own row-routing, with no PgSeries code in it at
+all.
 
-## TimescaleDB feature parity
+For the rare write that arrives outside any pre-created range, PG
+routes it to the table's `DEFAULT` partition. A `BEFORE INSERT`
+trigger lives **only on the default partition**, so it fires only
+when pre-creation has fallen behind. The trigger:
 
-What you get from PgSeries vs TimescaleDB. Implementation details live
-in *In scope (v0.1)* below.
+1. Claims a chunk-lease row (`for update skip locked` against
+   `pgseries.chunk_lease`).
+2. Creates the missing partition with the right bounds.
+3. Re-routes the row by inserting into the parent, which now finds
+   a matching partition.
 
-### Supported in v0.1 (clean fit)
+Result: zero trigger overhead on the steady-state hot path. The
+default partition exists but stays empty under healthy operation;
+pre-creation lag is detectable as non-zero rows in `…_default`.
 
-- **Hypertables** (as "series tables") — automatic time-based chunking
-  on native PG range partitioning.
-- **Retention policies** — scheduled drop of old chunks.
-- **Compression policies** — scheduled roll of cold chunks into a
-  columnar sibling. **Recompression** is a separate, independently
-  scheduled policy.
-- **Columnar compression** with explicit **segmentby** (scalar columns
-  for tag filtering) and **orderby** (parallel arrays for time/value
-  columns), frame-of-reference for ints/timestamps, per-column null
-  bitmaps, dictionary encoding for low-cardinality text, TOAST/lz4 as
-  the final stage. Target 3–6×.
-- **Decompression** — explicit API for write-path access to compressed
-  ranges, plus an opt-in **staging sibling** for late writes (no full
-  decompress on every write).
-- **Continuous aggregates** — incrementally-maintained rollup tables
-  with an always-on invalidation log; refresh policy defines the
-  reconciliation window (`refresh_lag` / `start_offset` / `end_offset`).
-  Watermark anchored on `pg_snapshot_xmin()` resolved to wall-clock via
-  `pg_xact_commit_timestamp()`.
-- **Real-time aggregation** — cagg view unions the materialized rollup
-  with on-the-fly aggregation of source rows past the materialization
-  watermark. v0.1 forbids `HAVING`, `GROUPING SETS`/`ROLLUP`/`CUBE`,
-  and window functions in cagg select lists; see §3.
-- **Finalized vs partials cagg storage** — finalized by default;
-  `partials` opt-in for hierarchical caggs.
-- **Hierarchical caggs (cagg-on-cagg)** — fixed-width buckets only in
-  v0.1 (seconds … weeks). `month`/`year` excluded because they are not
-  integer multiples of seconds.
-- **Reorder / clustering policies** — `CLUSTER` on chunks via cron.
-- **`time_bucket()`** — pure SQL, fixed-width parity.
-- **`time_bucket_gapfill()`** — pure SQL, single-group-key in v0.1.
-- **`first()` / `last()` aggregates** — composite-state custom aggregates;
-  `DISTINCT ON` recommended for hot paths. `orderby DESC` is supported on
-  the compressed sibling so last-point queries can early-exit.
-- **Chunk exclusion / data skipping** — partition pruning on the
-  compressed sibling plus BRIN `minmax_multi_ops` over sidecar
-  `seg_min_ts` / `seg_max_ts` and segmentby columns; the read view uses
-  `LATERAL` after a filtered subquery so quals land on the BRIN scan
-  before any unnest.
-- **Job scheduler** — `pg_cron`, plus `pgseries.run_due_jobs()` for any
-  external driver.
-- **Job control API** — `alter_job`, `pause_job`, `resume_job`,
-  `run_job_now`, retry-on-failure with exponential backoff.
-- **Information views** — `pgseries_information.jobs`, `job_stats`,
-  `job_errors`, `chunks`, `compression_settings`,
-  `continuous_aggregates`, `compressed_chunk_stats`, `cagg_lag`.
-- **`ts_insert_blocker` analog** — write-path enforcement on
-  compressed chunks (error by default; opt-in staging-write or
-  full-decompress).
-- **`show_chunks` / `drop_chunks`** — operational APIs.
-- **Migration** — `pgseries.adopt_partitioned_table(regclass)` adopts
-  an existing range-partitioned table in place; preferred Timescale
-  migration path is per-chunk parallel `pg_dump` (Timescale chunks are
-  individually dumpable), not a single `COPY`.
-- **Roles** — `pgseries_reader` / `pgseries_writer` / `pgseries_admin`.
+State coordination across pre-creation, compression, and retention
+goes through `pgseries.chunk_lease` — a row per chunk with `state
+in ('pending', 'ready', 'compressing', 'leased_for_write',
+'compressed')`. Every operation that mutates chunk state takes
+`for update skip locked` on the lease row. No advisory locks on
+parent OIDs, no three-way deadlock between writers, retention, and
+compression.
 
-### Partial or lossy
+### 2. Continuous aggregates — embedded PgQ delivers the watermark
 
-- **Hyperfunctions** (`percentile_agg`, `histogram`, `counter_agg`,
-  `time_weight`, ASOF, `locf`, `interpolate`) — slow in PL/pgSQL; lean
-  on PG built-ins (`percentile_cont`, `width_bucket`) and `DISTINCT ON`.
-- **Approximation sketches** — `hll` supported (broadly available on
-  managed PG); `tdigest` dropped from the managed-PG happy path
-  (unavailable on RDS/Aurora); pure-SQL t-digest is v0.2-conditional.
-- **Multi-group `time_bucket_gapfill`** — v0.1 single-group-key only.
-- **Lossless float compression** — TimescaleDB uses Gorilla; v0.1 ships
-  only opt-in lossy requantization. Lossless float compression awaits
-  a viable pure-SQL codec.
-- **Cagg select-list shapes** — `HAVING`, `GROUPING SETS`/`ROLLUP`/`CUBE`,
-  and window functions are rejected by `add_continuous_aggregate()` in
-  v0.1; see §3.
+PgSeries has the same problem PgQ solves: when is it safe to
+materialize a window of changes without missing in-flight
+transactions, and without pinning the xmin horizon?
 
-### Out of scope (infeasible without C)
+PgQ's answer is the **tick** — a row recording
+`pg_current_snapshot()` at time T. Two consecutive ticks define a
+batch: rows whose `xmin` is visible to tick N+1 but not tick N.
+Apply that batch and you've made progress without missing anything.
 
-- **Bit-level codecs** — Gorilla, delta-delta, simple-8b. PL/pgSQL
-  per-value overhead inverts the economics.
-- **Custom planner and executor nodes** — vectorized compressed scan,
-  chunk-exclusion planner hooks, constraint-aware parallel append.
-  Replaced (imperfectly) by partition pruning + BRIN + view-layer
-  predicate pushdown via `LATERAL`.
-- **Distributed hypertables** — deprecated upstream as of TimescaleDB 2.14.
-- **Tiered storage to object storage** — Timescale Cloud-only, requires
-  custom storage hooks.
-- **Promscale-style ingest caggs** — requires the bypassed insert path.
-- **Space partitioning (`add_dimension`)** — deferred to v0.2; the
-  v0.1 scale target (10¹⁰ rows) is achievable on time-only partitioning
-  with the per-chunk segmentby cap from §4.
+PgSeries embeds the PgQ engine and reuses ticks as the cagg
+materialization watermark, directly:
 
-## In scope (v0.1)
+- An `AFTER STATEMENT` trigger on the source table emits one event
+  per statement into a PgQ queue named `cagg_invalidation_<cagg>`.
+  Each event carries `(min_time, max_time)` derived from the
+  statement's transition tables. `AFTER ROW` triggers are
+  deliberately not used — they serialize `COPY` and bulk insert.
+- A refresh consumer takes the next batch (`pgque.next_batch`),
+  reads its events, merges their time ranges (this is the
+  invalidation-log coalescing — naturally part of batch
+  consumption, not a separate maintenance job), and refreshes the
+  rollup table for that range.
+- The watermark *is* the batch boundary. Rows whose `xmin` is
+  in-flight at batch-close don't appear in this batch; they appear
+  in the next one. No xid-to-timestamp translation, no safety
+  margin, no `track_commit_timestamp`. PgQ has been doing this
+  since 2007.
 
-### 1. Series tables
+The cagg view returns the materialized rollup `union all`'d with
+on-the-fly aggregation of source rows past the watermark. v0.1
+forbids `HAVING`, `GROUPING SETS`/`ROLLUP`/`CUBE`, and window
+functions in cagg select lists — those shapes break the
+union-then-regroup recombination. Wrap the cagg view in a regular
+view to apply them at query time.
 
-Native PG range partitioning by time. Chunks are pre-created by a cron
-job ahead of the write frontier. Chunk creation does **not** rely on
-advisory locks on the parent OID — that pattern deadlocks against
-retention (writer holds advisory, retention waits in
-`AccessExclusive` on the same parent). Instead:
+Hierarchical caggs (cagg-on-cagg) are supported only across
+**fixed-width buckets** (microsecond … week) where the child
+bucket is an integer multiple of the parent's. `month`/`year` are
+not fixed-width and are forbidden in cagg parents in v0.1.
 
-- A `pgseries.chunk_lease` table holds one row per pending chunk
-  range. The chunk-creator job claims a row with
-  `select … from pgseries.chunk_lease where state = 'pending' for
-  update skip locked`, creates the partition, marks `state = 'ready'`,
-  commits.
-- The `BEFORE INSERT` trigger is the rare fallback when a write outruns
-  the pre-creator. It claims a lease row the same way; if no row exists
-  it inserts one and proceeds. Hot path overhead: one indexed
-  `chunk_lease` lookup per insert that misses the pre-created range.
-- Retention reads the same lease table and refuses to drop ranges
-  with `state in ('compressing', 'leased_for_write')`.
+### 3. Compression — columnar siblings, BRIN-skipping, no planner hooks
 
-`SECURITY DEFINER` reconciliation: pre-creator and trigger functions
-are owned by `pgseries_admin`, so created chunks inherit
-`pgseries_admin` ownership. Writers get table-level grants via the
-`pgseries_writer` role membership on the parent. No writer ever owns
-a chunk; ownership is uniform across all chunks of a series table.
+Cold chunks are rolled into a parallel `_compressed` table that is
+itself partitioned with the same time bounds. Each compressed row
+holds N source rows, laid out columnar:
 
-Catalog tables: `pgseries.series_table`, `pgseries.chunk`,
-`pgseries.chunk_lease`, `pgseries.dimension`.
-
-### 2. Retention policies
-
-`pg_cron` job calls `pgseries.drop_chunks(table, before := now() - N)`.
-Chunks under active compression or with `state = 'leased_for_write'`
-in `pgseries.chunk_lease` cannot be dropped concurrently.
-
-### 3. Continuous aggregates
-
-Incrementally-maintained rollup tables. An **`AFTER STATEMENT` trigger
-with transition tables** on the source table appends one
-`(min_time, max_time, xmin)` row per statement to
-`pgseries.cagg_invalidation`, where `xmin = pg_current_xact_id()`.
-`AFTER ROW` triggers are not used: they fire per-row and serialize
-`COPY`/bulk insert into the queue's main bottleneck.
-
-**Invalidation log coalescing.** A maintenance job runs every
-`coalesce_interval` (default 5 s) and merges adjacent or overlapping
-ranges per `(series_table, cagg)` into a single row. Without this,
-a hot row produces N entries and refresh degenerates to O(N) work
-per refresh tick.
-
-**Materialization watermark.** v0.1 requires
-`track_commit_timestamp = on`. The watermark is computed once per
-refresh as
-
-```
-watermark_xid  := pg_snapshot_xmin(pg_current_snapshot())
-watermark_time := pg_xact_commit_timestamp(watermark_xid)
-                  - safety_margin    -- default 1 s
-```
-
-`safety_margin` covers clock skew on commit-timestamp resolution.
-Refreshes only consume invalidation rows whose `xmin < watermark_xid`,
-so in-flight transactions are never skipped (the PgQ tick pattern).
-The cagg view's "real-time" half reads source rows with
-`time >= watermark_time`. Storing `xmin` per invalidation row makes
-this independent of clock skew on the commit-timestamp side; the
-xid8-comparison is the source of truth, with the timestamp only used
-to constrain the source-side scan.
-
-**Real-time aggregation, straddle-bucket rule.** A bucket B that
-crosses the watermark gets contributions from both halves. v0.1
-guarantees correct counts and sums by:
-
-- materialized half: never writes a partial bucket — refresh always
-  closes a bucket only when `bucket_end <= watermark_time`.
-- real-time half: aggregates source rows with `time >= watermark_time`,
-  which by construction lies inside an open bucket.
-
-The cagg view returns `union all` of both halves with a single outer
-`group by bucket`. v0.1 rejects:
-
-- `HAVING` clauses
-- `GROUPING SETS` / `ROLLUP` / `CUBE`
-- window functions in the cagg select list
-
-These shapes break the union-then-regroup pattern. Wrap the cagg view
-in a regular view to apply them at query time. v0.2 may lift the
-restriction once recombination semantics are specified per shape.
-
-**Hierarchical caggs (cagg-on-cagg)** are supported only when both
-parent and child use **fixed-width buckets** (microsecond … week),
-child width is an integer multiple of parent's, and both align on a
-common epoch. `month` and `year` buckets are not fixed-width and are
-forbidden in cagg-on-cagg in v0.1.
-
-### 4. Columnar compression (pure SQL)
-
-Cold chunks roll into a sibling `_compressed` table that is itself
-partitioned with the same time bounds, so partition pruning fires
-before the read view unnests. Each compressed row stores N source
-rows with explicit **segmentby** and **orderby**:
-
-- **segmentby columns** (e.g. `device_id`) — scalar on the compressed
-  row. Predicates on segmentby skip whole compressed rows without
-  unnesting. Single most important correctness/performance feature;
-  not the same as sort order.
+- **segmentby columns** (e.g. `device_id`) — scalar on the
+  compressed row. Predicates on segmentby skip whole compressed
+  rows without unnesting. This is the load-bearing decision; not
+  the same as sort order.
 - **orderby columns** (typically `time`) — parallel typed arrays,
-  sorted within each segment. **`orderby DESC`** is supported per
-  column at compression time so last-point (`order by time desc limit 1`)
-  queries can stop after one segment.
+  sorted within each segment. `orderby DESC` is supported per
+  column at compression time so last-point queries can stop after
+  one segment.
 - **value columns** — parallel typed arrays.
 
-**Segmentby cardinality.** Compression ratio collapses when segmentby
-cardinality approaches segments-per-chunk. With ~1 day chunks at
-typical metric rates, segmentby cardinality should stay below ~10⁴
-per chunk (this is the binding constraint behind the 10¹⁰-row scale
-target). Above that, segments hold few rows, FOR encoding loses to
-overhead, and ratio drops to ~1.5×. `add_compression_policy()` warns
-when the chunk's distinct segmentby count exceeds
-`segmentby_warn_threshold` (default 50 000); the install README
-documents this prominently.
+The pipeline that builds a compressed row from source rows:
 
-Pipeline (vectorized SQL):
+1. group by segmentby
+2. sort by orderby
+3. encode integers/timestamps with frame-of-reference (`min(col)` +
+   `int2[]`/`int4[]`/`int8[]` offsets — falls back wider when the
+   range overflows)
+4. encode low-cardinality text with a per-chunk dictionary
+   (`text[]` dict + `int2[]` indices)
+5. encode nulls as a per-column bitmap (`bytea`)
+6. optional lossy float requantization (opt-in per column)
+7. write the column arrays to columns with `storage extended` so
+   the values land out-of-line in TOAST and `lz4` runs on them
+8. tune segment row count so the resulting arrays are above the
+   TOAST threshold (~2 KiB) — below that, lz4 doesn't fire
 
-- group by segmentby, sort by orderby
-- frame-of-reference for ints/timestamps: `min(col)` + `int2[]`/`int4[]`
-  offsets, fall back to `int8[]` when range overflows
-- per-column null bitmap (`bytea`)
-- dictionary encoding for low-cardinality text (per-chunk `text[]` dict
-  + `int2[]` indices)
-- optional float requantization (lossy, opt-in per column; lossless FOR
-  is integer/timestamp only)
-- segment row count tuned so packed arrays land in TOAST out-of-line
-  storage (above the toast threshold, ~2 KiB) where `lz4` actually runs.
-  Per-column **`storage extended`** is set explicitly. Earlier drafts of
-  this spec said `storage external`, which is wrong: `external` stores
-  out-of-line uncompressed, so `lz4` never fires. `extended` is the
-  correct, default storage class and is what the pipeline targets.
-- **Read-only enforcement** uses a `BEFORE INSERT OR UPDATE OR DELETE
-  OR TRUNCATE` trigger on each compressed chunk that raises
-  `read_only_violation`. `CHECK` constraints constrain row values, not
-  writes, and cannot enforce read-onlyness. The trigger is paired with
-  an explicit `revoke insert, update, delete, truncate on <chunk> from
-  pgseries_writer` so the error path is never reached in normal
-  operation; the trigger is the safety net for misconfigured grants.
+Side stats columns on every compressed row (`seg_min_ts`,
+`seg_max_ts`, `seg_row_count`, per-column null counts, segmentby
+scalars) plus a BRIN `minmax_multi_ops` index on `(seg_min_ts,
+seg_max_ts)` and on segmentby columns give us data skipping
+without a custom planner. `minmax_multi_ops` (PG 14+) is required
+because compressed rows arrive grouped by segmentby, not by time —
+ranges from plain `minmax_ops` would be useless.
 
-**Compression swap.** `DETACH PARTITION CONCURRENTLY` followed by
-re-`ATTACH` is *not* used — it is a two-phase operation that can leave
-the partition in `pg_partitioned_table.partattrs = …` with
-`partpending` semantics and exposes a window where mid-swap readers
-see neither the old nor the new partition for the same range. Instead,
-the swap takes a short `AccessExclusive` lock on the parent under
-`SET LOCAL lock_timeout = '1s'`, performs `DETACH … FINALIZE` of the
-heap partition and `ATTACH PARTITION` of the compressed sibling in a
-single transaction, then commits. If the lock cannot be acquired,
-the job retries on the next tick with truncated exponential backoff;
-no state is left half-applied. Plan-cache invalidation is unavoidable
-and is documented.
+Reads go through a view that unions uncompressed + staging +
+compressed siblings. Predicate pushdown is achieved with `LATERAL`
+after a filtered subquery, never by `unnest` in the outer select —
+the planner can't push quals through `unnest`. Plan shape is
+verified in CI: a pgTAP test asserts partition pruning + BRIN
+index scan + zero `Function Scan` on `unpack_segment` for skipped
+partitions.
 
-**Post-swap BRIN.** `autosummarize=on` is asynchronous (driven by
-autovacuum), so the first range queries after a compression swap
-do not benefit from BRIN skipping. The compression job calls
-`select brin_summarize_new_values(<index>)` synchronously after the
-swap so the compressed chunk's first read already skips correctly.
-
-Target ratio: **3–6×** against heap + TOAST (excluding indexes) on
-integer/timestamp telemetry; lower on floats without bit-packed codecs.
+**Honest ratio.** Target **3–6×** against heap + TOAST on
+integer/timestamp telemetry. TimescaleDB-class 10–20× ratios
+require bit-level codecs (Gorilla, delta-delta, simple-8b) whose
+PL/pgSQL per-value overhead would invert the economics. Float
+columns without lossy requantization compress closer to 2×.
 Benchmarks report per-column-type breakdown.
 
-### 5. Write path on compressed chunks
+**Compression swap** takes a short `AccessExclusive` lock on the
+parent under `set local lock_timeout = '1s'`, performs the heap
+detach + compressed-sibling attach in one transaction, and
+commits. `DETACH PARTITION CONCURRENTLY` is not used — its
+two-phase semantics expose a window where readers see neither the
+old nor the new partition for the same range. After swap, the
+compression job calls `brin_summarize_new_values()` synchronously
+so first-read skipping is immediate (autosummarize is async).
 
-Three modes, picked per series table:
+**Read-only enforcement** on compressed chunks is a `BEFORE INSERT
+OR UPDATE OR DELETE OR TRUNCATE` trigger that raises, paired with
+explicit `revoke insert, update, delete, truncate from
+pgseries_writer` on every compressed chunk. `CHECK` constraints
+constrain row values, not writes, and cannot enforce read-onlyness.
 
-1. **`error`** (default): a `BEFORE INSERT OR UPDATE OR DELETE` trigger on
-   the compressed sibling raises with a message pointing at the
-   decompression API.
-2. **`staging`** (recommended for late writes): writes go to a sibling
-   `_staging` heap partition that shares the same time range.
-   `add_recompression_policy()` periodically merges staging rows into
-   the compressed sibling. Reads union all three (uncompressed,
-   staging, compressed) via the read view in §6. This avoids full
-   decompress on every late write — the model TimescaleDB 2.11+ adopted.
-3. **`auto_decompress`**: opt-in. Decompresses affected segments back
-   into the uncompressed sibling, applies the write, marks for
-   recompression by the recompression policy.
+### 4. Late writes — staging sibling, no full decompress
 
-**Concurrent decompress + write.** Staging and `auto_decompress` modes
-take a per-`(chunk_id, segment_hash)` advisory lock
-(`pg_advisory_xact_lock(chunk_id, segment_hash)`) so two writers cannot
-race to decompress and re-compress the same segment. Lease lookup uses
-`for update skip locked` against `pgseries.chunk_lease` for chunk-level
-state, advisory lock for segment-level state.
+Writes that arrive against an already-compressed chunk land in a
+heap `_staging` sibling that shares the chunk's time range.
+`add_recompression_policy()` is a separate cron job that
+periodically merges staging rows into the compressed sibling.
+Reads union all three siblings (uncompressed, staging, compressed)
+so a freshly-written row is visible immediately.
 
-**`ON CONFLICT`** on compressed chunks errors in all three modes — there
-is no per-row primary key in compressed form. Note (PG general rule,
-documented prominently): `ON CONFLICT` on a partitioned series table
-requires the unique index to include the partition key column (`time`).
+This avoids decompressing a whole segment on every late write —
+the model TimescaleDB adopted in 2.11+ and the right default for
+out-of-order ingest. Two alternatives are also available:
 
-### 6. Transparent compressed reads
+- `error` mode: a trigger raises; the application is expected to
+  not write to compressed ranges.
+- `auto_decompress` mode: opt-in. Decompresses affected segments,
+  applies the write, marks for recompression. A per-`(chunk_id,
+  segment_hash)` advisory lock prevents two writers from racing
+  on the same segment.
 
-A read view unions the uncompressed, staging, and compressed siblings.
-Predicate pushdown is achieved with `LATERAL` after a filtered subquery,
-not by direct `unnest` in the select list. The shape is:
+`on conflict` errors in all three modes — there is no per-row
+primary key in compressed form. (PG general rule: `on conflict`
+on a partitioned table requires the unique index to include the
+partition key column.)
+
+### 5. Embedded PgQ — three uses, one engine
+
+PgQue's pgque-core is **vendored** into the PgSeries install bundle
+as `pgseries/_pgq/`. The single-file install
+(`\i pgseries.sql`) loads PgQ first, then PgSeries on top. The
+schema is `pgseries_pgq` so it doesn't collide with a user's
+existing PgQue install in the same database. PgQ is pinned to a
+specific tagged release; PgSeries ships its own bundle.
+
+Three places use it:
+
+1. **Cagg invalidation queue** — described in §2 above. The
+   batch boundary is the materialization watermark; nothing
+   else needed.
+2. **Job runner** — `pgseries.system_jobs` is a PgQ queue.
+   Every scheduled policy (retention, compression,
+   recompression, refresh, reorder, chunk pre-creation) emits
+   a "due" event on its schedule and a consumer worker
+   processes the next batch. The cron-free fallback story
+   becomes trivial: anything that calls `pgque.ticker()` —
+   `pg_cron`, `pg_timetable`, system cron, an app worker —
+   drives PgSeries. Pause/resume is a PgQ-level operation.
+3. **Staging → recompression signaling** — every write to a
+   `_staging` sibling emits a "dirty segment" event. The
+   recompression consumer batches by chunk and merges. Natural
+   fit for batch boundaries.
+
+Why vendor instead of depend: PgSeries has to give a single-file,
+single-transaction install on any provider. Asking users to
+install pgque first turns one transaction into two and one
+namespace into a coordination problem. Vendoring is what PgQ does
+internally with its three-table layout already; we're applying the
+same trick one layer up.
+
+### 6. Space partitioning — designed in, API in v0.2
+
+Time-only partitioning is sufficient for the v0.1 10¹⁰-row scale
+target. But every real time-series schema we've seen has a
+non-temporal axis — `tenant_id`, `region`, `customer_id` — that
+needs to participate in pruning and parallel write distribution.
+Punting space partitioning to v0.2 *as an afterthought* would
+require a catalog migration we don't want to do.
+
+So: the catalog supports it from day zero. `pgseries.dimension`
+holds one row per dimension on every series table, with
+`dimension_type in ('time', 'space_hash', 'space_range')` and
+`number_partitions` for space dimensions. v0.1 only writes
+`dimension_type = 'time'` rows; the API surface
+(`pgseries.add_dimension(table, column, type, n)`) exists and
+returns a clear "v0.2" error.
+
+`pgseries.chunk` carries dimension-coordinate columns
+(`time_lower`, `time_upper`, `space_partition_index`) so a v0.2
+chunk identity is a tuple, not a single time range. v0.1 chunks
+all have `space_partition_index = 0`. Code paths that select
+chunks (compression policy, retention, cagg refresh,
+`drop_chunks`, `show_chunks`) accept a chunk *set*, not a chunk
+range, so v0.2 can extend the selector without rewriting them.
+
+What stays out: the v0.1 partition-creation code does not generate
+sub-partitions. Adding it later means one new step in §1's
+pre-creator job, not a redesign.
+
+### 7. Job scheduling
+
+There is no PgSeries-specific scheduler. PgQ's ticker model from
+§5 is the scheduler. Three deployment shapes work out of the box:
+
+- `pg_cron` calling `pgque.ticker_loop()` (PgQue's default).
+- `pg_timetable` calling the same.
+- An external driver (system cron, systemd timer, an app worker)
+  calling `select pgque.ticker()` at any cadence ≥ 1 s.
+
+Job bodies (compress chunk, refresh cagg, drop chunks, …) are
+executed by a consumer of `pgseries.system_jobs`. Retry,
+exponential backoff, and DLQ semantics are PgQ's, not ours.
+`pgseries.alter_job` / `pause_job` / `resume_job` /
+`run_job_now` are thin wrappers over PgQ's queue operations.
+
+## Detailed design
+
+### Series tables
+
+Native PG range partitioning by time. A `DEFAULT` partition exists
+on every series table. The pre-creator runs as a PgQ job
+(`pgseries.system_jobs` event type `precreate_chunks`) and creates
+N partitions ahead of the write frontier (default `pre_create_n =
+7` for daily chunks). The hot path involves no PgSeries code.
+
+The default partition's `BEFORE INSERT` trigger is the rare-miss
+fallback. It claims a `chunk_lease` row, creates the missing
+partition with `attach partition`, and re-inserts the row through
+the parent. If the row racing in is one of many that would all
+target the same missing range, only the first claims the lease;
+the rest find `state = 'ready'` after re-insert and route directly.
+Throughput collapses to write-serial only for the first row of a
+new range and only when pre-creation has lagged.
+
+`SECURITY DEFINER` ownership reconciliation: pre-creator and
+default-partition trigger functions are owned by `pgseries_admin`,
+so created chunks inherit `pgseries_admin` ownership uniformly.
+Writers get table-level grants via `pgseries_writer` membership on
+the parent. No writer ever owns a chunk.
+
+Catalog: `pgseries.series_table`, `pgseries.chunk`,
+`pgseries.chunk_lease`, `pgseries.dimension`.
+
+### Retention
+
+A scheduled `drop_chunks` job consumes from `pgseries.system_jobs`
+and drops chunks with `time_upper < now() - retention_period`.
+Chunks with `state in ('compressing', 'leased_for_write')` in
+`pgseries.chunk_lease` are skipped this round and retried on the
+next.
+
+### Continuous aggregates
+
+`AFTER STATEMENT` trigger using transition tables produces one
+PgQ event per statement on `cagg_invalidation_<cagg>` carrying
+`(min_time, max_time)`. Refresh consumer takes the next batch,
+unions ranges, and refreshes the materialized rollup for the
+unioned span. The cagg view's "real-time" half reads source rows
+with `time >= materialization_watermark` (the time floor of the
+next pending batch) and unions with the materialized half.
+Straddle buckets are correct by construction: the materialized
+half never closes a partial bucket; the real-time half handles
+everything past the watermark.
+
+Hierarchical caggs: child width must be an integer multiple of
+parent's width, both fixed-width, both aligned on a common epoch.
+`month`/`year` rejected by `add_continuous_aggregate()` when used
+as a parent of a cagg-on-cagg.
+
+### Compression — pipeline details
+
+Per-column rules in pipeline order:
+
+| Stage | Operation |
+|---|---|
+| group | `group by` segmentby columns |
+| sort | `order by` orderby columns within each segment |
+| FOR (int) | `min` + `int2[]`/`int4[]`/`int8[]` offsets, widest needed |
+| FOR (timestamp) | same, on `epoch_microseconds` |
+| dict (text) | `text[]` dictionary per chunk, `int2[]` indices on rows |
+| nulls | `bytea` bitmap, one bit per source row per nullable column |
+| float (lossy, opt-in) | quantize to N significant digits before FOR |
+| storage | `alter column … set storage extended` (default; lz4 runs) |
+| segment row count | tuned so packed arrays are > TOAST threshold (~2 KiB) |
+
+`storage extended` is the correct class. An earlier version of
+this spec said `storage external`, which is out-of-line
+*uncompressed* — `lz4` would never fire. `extended` is what we
+want.
+
+`add_compression_policy()` warns when a chunk's distinct
+segmentby count exceeds `segmentby_warn_threshold` (default
+50 000); the practical cap for the 3–6× target is ~10⁴. Above
+that, segments hold too few rows, FOR overhead dominates, and
+ratio drops to ~1.5×.
+
+### BRIN data skipping
+
+`minmax_multi_ops` indexes on `(seg_min_ts, seg_max_ts)` and on
+each segmentby column. `pages_per_range` defaults to 32;
+`add_compression_policy()` accepts an override.
+`brin_summarize_new_values()` is called synchronously after the
+compression swap so the first range query skips correctly without
+waiting for autovacuum.
+
+### Read view
 
 ```sql
 create view <table> as
@@ -391,226 +404,178 @@ create view <table> as
     select compressed_row
     from <table>_compressed
     where seg_max_ts >= $a and seg_min_ts <= $b
-      -- segmentby predicates also pushed here
+      -- segmentby predicates pushed here too
   ) f,
   lateral pgseries.unpack_segment(f.compressed_row) as c(unpacked);
 ```
 
-The filtered subquery lets the planner land time and segmentby quals on
-the BRIN/partition scan **before** the lateral unnest fires. A naive
-`select unnest(...)` in the outer select cannot push filters through.
+The filtered subquery is the load-bearing shape: it lets quals
+land on the BRIN/partition scan before the lateral unnest fires.
+A `select unnest(...)` in the outer select can't push filters
+through.
 
-**Plan-shape acceptance test (CI).** A pgTAP regression test runs
-`EXPLAIN (FORMAT JSON, BUFFERS)` on a representative range query and
-asserts:
+CI runs a pgTAP plan-shape test on a representative range query
+and asserts partition pruning, BRIN index choice referencing
+`seg_min_ts`/`seg_max_ts`, no `Function Scan` on
+`unpack_segment` for skipped partitions, and segmentby predicates
+in the inner filter.
 
-- partition pruning on `<table>_compressed` is applied
-- the chosen index is BRIN (`Index Cond` referencing `seg_min_ts`/`seg_max_ts`)
-- no `Function Scan` on `unnest`/`unpack_segment` appears for skipped
-  partitions
-- segmentby predicates appear in the inner filter, not as a post-unnest
-  filter
-
-The test runs on PG 15/16/17/18 in CI and is the load-bearing
-correctness signal for the read path.
-
-### 7. Data skipping without planner hooks
-
-Sidecar stats columns on every compressed row: `seg_min_ts`,
-`seg_max_ts`, `seg_row_count`, per-column null counts, segmentby
-scalars. BRIN index using **`minmax_multi_ops`** (PG 14+) over
-`(seg_min_ts, seg_max_ts)` and over each segmentby column.
-`minmax_multi_ops` tolerates non-correlated insertion order, which is
-exactly what compressed rows produce when segments arrive grouped by
-segmentby rather than time. Plain `minmax_ops` would produce useless
-ranges in this layout.
-
-`pages_per_range` defaults to 32; `add_compression_policy()` accepts
-an override. Compressed tables are append-only after creation;
-re-`CLUSTER` invalidates BRIN correlation (documented).
-`autosummarize=on`, plus the synchronous
-`brin_summarize_new_values()` call from §4 post-swap.
-
-### 8. Time helpers
-
-`time_bucket()` and `time_bucket_gapfill()` in pure SQL
-(`generate_series` + left join). Fixed-width buckets (microsecond …
-week) in v0.1; `month` and `year` are accepted by `time_bucket()` but
-disallowed in cagg-on-cagg parents (§3). Gapfill is single-group-key
-in v0.1; multi-group + `locf`/`interpolate` deferred.
-
-### 9. Reorder / clustering policies
-
-`CLUSTER` on chunks via cron, only on chunks not under active
-compression (lease check against `pgseries.chunk_lease`).
-
-### 10. Aggregates
-
-`first(value, time)` and `last(value, time)` as pure-SQL custom
-aggregates with composite `(value, time)` state. `PARALLEL SAFE` only
-after combinefunc verification. Convenience, not performance — use
-`DISTINCT ON` on hot paths. Last-point queries on compressed data
-benefit from `orderby DESC` (§4) so the unpack stops after one segment.
-
-### 11. Operational surface
-
-`pgseries_information` schema with views matching TimescaleDB naming
-where reasonable: `jobs`, `job_stats`, `job_errors`, `chunks`,
-`compression_settings`, `continuous_aggregates`,
-`compressed_chunk_stats`, `cagg_lag`. `cagg_lag` reports per-cagg
-`(materialization_watermark, latest_invalidation_time, lag_seconds,
-out_of_window_writes)` and is the surface for the acceptance criterion
-on out-of-window writes.
-
-Job control: `alter_job`, `pause_job`, `resume_job`, `run_job_now`,
-retry-on-failure with exponential backoff.
-
-**Cron-free fallback.** When `pg_cron` is unavailable:
+### Compression swap
 
 ```sql
-select pgseries.run_due_jobs(
-  max_jobs       := 100,    -- upper bound on jobs claimed this call
-  lease_seconds  := 60,     -- soft deadline for in-flight jobs
-  block          := false   -- false = return immediately when nothing due
-);
+set local lock_timeout = '1s';
+alter table <table> detach partition <chunk> finalize;
+alter table <table> attach partition <chunk_compressed>
+  for values from (...) to (...);
 ```
 
-Each invocation:
+If `lock_timeout` fires, the job retries on the next tick with
+truncated exponential backoff. No state is left half-applied.
+Plan-cache invalidation is unavoidable and is documented.
 
-1. Claims pending jobs with `select … from pgseries.jobs where
-   next_run_at <= now() and not running for update skip locked
-   limit max_jobs`.
-2. For each claimed job, takes a transaction-level advisory lock on
-   `(hashtext('pgseries.job'), job_id)` — a second concurrent driver
-   that tries the same job is shed.
-3. Runs the job body in a subtransaction; on error, records the error
-   in `pgseries_information.job_errors` and reschedules with
-   exponential backoff.
-4. Releases the row lock by updating `running = false`,
-   `next_run_at = …`.
+### Write path on compressed chunks
 
-Drivers (system cron, systemd timer, an app worker, an external
-scheduler) call `run_due_jobs()` at any cadence ≥ 1 s; the function
-is safe under N parallel drivers.
+Three modes, picked per series table at `add_compression_policy`
+time: `error` (default), `staging` (recommended for late writes),
+`auto_decompress` (opt-in). `staging` and `auto_decompress` both
+take per-`(chunk_id, segment_hash)` advisory locks so two writers
+cannot race to decompress and recompress the same segment.
 
-### 12. Migration
+### Time helpers
 
-- `pgseries.adopt_partitioned_table(regclass)` — adopts an existing
+`time_bucket()` and `time_bucket_gapfill()` in pure SQL, fixed-
+width buckets (microsecond … week). `month`/`year` accepted by
+`time_bucket()` itself; not accepted as cagg parents (see §3 of
+*Architecture*). Gapfill is single-group-key in v0.1; multi-group
++ `locf`/`interpolate` deferred.
+
+### Aggregates
+
+`first(value, time)` and `last(value, time)` as pure-SQL custom
+aggregates with composite `(value, time)` state. `parallel safe`
+only after combinefunc verification. Convenience, not performance
+— use `distinct on` on hot paths. Last-point queries on
+compressed data benefit from `orderby desc` (above) so unpack
+stops after one segment.
+
+### Operational surface
+
+`pgseries_information` schema:
+
+- `jobs`, `job_stats`, `job_errors` — system_jobs queue state
+- `chunks`, `compression_settings`, `compressed_chunk_stats`
+- `continuous_aggregates`, `cagg_lag` — per-cagg
+  `(materialization_watermark, latest_invalidation_time,
+  lag_seconds, out_of_window_writes)`
+
+Job control: `alter_job`, `pause_job`, `resume_job`, `run_job_now`.
+
+### Migration
+
+- `pgseries.adopt_partitioned_table(regclass)` — adopt an existing
   range-partitioned table without data movement.
-- **From TimescaleDB:** preferred path is per-chunk parallel `pg_dump`.
-  TimescaleDB chunks are individually `pg_dump`-able, so a parallel
-  dump-and-restore over chunks is far faster than a single `COPY` on
-  a multi-TB hypertable. The migration guide ships a script
-  (`scripts/migrate-from-timescale.sh`) that enumerates source chunks,
+- From a hypertable: per-chunk parallel `pg_dump` is the preferred
+  path. Hypertable chunks are individually `pg_dump`-able, so a
+  parallel dump-and-restore is far faster than a single `COPY`.
+  `scripts/migrate-from-hypertable.sh` enumerates source chunks,
   dumps in parallel, and restores into a fresh series table.
-- Fallback path: `COPY` from TimescaleDB hypertable + bulk insert.
-- No automated `hypertable → series_table` converter in v0.1.
+- Fallback: `COPY` into a fresh series table.
 
-### 13. Roles
+### Roles
 
 `pgseries_reader`, `pgseries_writer`, `pgseries_admin`. All
 `SECURITY DEFINER` functions pin
-`SET search_path = pgseries, pg_catalog`. Functions that create chunks,
-compress, decompress, or merge staging are owned by `pgseries_admin`
-so chunk ownership is uniform across the series table; writers never
-own a chunk (§1).
-
-## Cardinality
-
-The earlier "~10⁶ active series" framing in this spec was wrong — it
-conflated total cardinality with per-chunk segmentby cardinality, and
-quoted a number two-to-three orders of magnitude below the actual
-ceiling. The correct framing is:
-
-- **Total rows in a series table** (the headline scale number):
-  **10¹⁰** at v0.1's design point. See *Scale target* above for
-  derivation.
-- **Total active series** (`device_id` × `metric_name` × …): not the
-  binding constraint. Series identity lives in segmentby columns;
-  series count is bounded by `segmentby_per_chunk × chunks_in_window`,
-  and 10⁴ × 365 = 3.65 × 10⁶ active series is fine on default chunking
-  before any segmentby tuning. Provider-side limits (RAM, WAL, IOPS)
-  bind earlier than series count does.
-- **Distinct segmentby values per chunk**: keep below **~10⁴** for the
-  3–6× compression target. Above that, segments hold too few rows and
-  ratio drops to ~1.5×; `add_compression_policy()` warns at 50 000.
-
-Time-only partitioning is sufficient for v0.1's 10¹⁰-row target.
-`add_dimension` (space partitioning) is the v0.2 escape hatch when
-rows-per-chunk pushes past the compression-throughput budget — not a
-workaround for "too many series".
+`set search_path = pgseries, pg_catalog`. Functions that create
+chunks, compress, decompress, or merge staging are owned by
+`pgseries_admin` so chunk ownership is uniform.
 
 ## Non-goals
 
-- Match TimescaleDB's 10–20× compression ratios. Target 3–6×.
-- Match TimescaleDB scan latency on compressed data. Target: queries
-  filter through BRIN/partition pruning before unnesting.
-- Scale a single series table past 10¹⁰ rows without `add_dimension`.
+- Match TimescaleDB-class **10–20×** compression ratios. Target
+  3–6×. Bit-level codecs are not feasible in PL/pgSQL.
+- Match TimescaleDB scan latency on compressed data. Target:
+  queries filter through BRIN + partition pruning before
+  unnesting; that's enough for analytics, not for sub-millisecond
+  point lookups.
+- Scale a single series table past 10¹⁰ rows without
+  `add_dimension` (v0.2).
+- Support PG 16 or older. Greenfield projects should be on a
+  modern PG; PgSeries leans on PG 17 features (`MERGE`,
+  `MERGE/SPLIT PARTITION`, modern partitioning ergonomics) for
+  simpler code.
 
 ## Acceptance criteria
 
-- `\i pgseries.sql` installs cleanly on stock PG 15–18 with
-  `track_commit_timestamp = on`. Installer errors loudly when the
-  GUC is off.
-- **Plan-shape regression test** (§6): pgTAP test asserts partition
+- **Install.** `\i pgseries.sql` installs cleanly on stock PG 17
+  and PG 18 in a single transaction. The bundle includes pgque-core
+  loaded into a `pgseries_pgq` schema.
+- **Plan-shape regression test.** pgTAP test asserts partition
   pruning + BRIN `minmax_multi_ops` segment skipping + zero
-  `Function Scan` on `unpack_segment` for skipped partitions. Runs in
-  CI on PG 15/16/17/18.
-- **Smoke test** on RDS, Aurora, Cloud SQL, Supabase, Neon (free or
-  starter tier; 10⁷ rows ingested over ≤10 minutes; SLA: each policy
-  job completes within `2 × schedule_interval` measured at the 95th
-  percentile over 10 runs): create series table, ingest 10M rows, add
-  retention + cagg + compression + recompression policies, verify each
-  runs under `pg_cron` AND under `pgseries.run_due_jobs()`.
-- **Scale benchmark**: a single self-hosted **PG 18** instance ingests
-  **10¹⁰ rows** into one series table over 30 days of synthetic
-  metric workload, with retention + cagg + compression + recompression
-  policies all running. **Reference hardware**: local NVMe storage
-  (no network-attached block storage), ~128 GiB RAM, modern many-core
-  x86. Reported numbers: ingest p50/p95, cagg refresh p95 latency,
-  compression throughput (rows/sec/chunk), on-disk size (compressed
-  vs heap+TOAST), p95 query latency on representative range scans.
-  Exact CPU count and NVMe throughput floor pinned after the first
-  dry-run and frozen for the v0.1 release.
-- **Compression benchmark** on a public dataset (NYC taxi + devops
-  metrics): ratio (heap + TOAST, excl. indexes) and scan latency vs
-  uncompressed and vs TimescaleDB on self-hosted PG, broken down by
-  column type.
-- **Continuous aggregate correctness:** out-of-order writes within
-  `refresh_lag` are reconciled by the next refresh; writes outside
-  the window appear in `pgseries_information.cagg_lag`. Straddle-bucket
-  test asserts no double-count and no missed rows across the watermark.
-- **Compressed write path:**
-  - `error` mode: insert-blocker errors with the documented message.
-  - `staging` mode: write → staging → recompression merge round-trips
-    the same row count and aggregate values.
-  - `auto_decompress` mode: round-trip correctness under concurrent
-    writers (per-segment advisory lock test).
-- **Read-only enforcement:** trigger raises on `INSERT`/`UPDATE`/
-  `DELETE`/`TRUNCATE` against a compressed chunk; `revoke` denies
-  before the trigger fires.
-- **Compression swap:** `lock_timeout` retry test under contention;
+  `Function Scan` on `unpack_segment` for skipped partitions.
+  Runs in CI on PG 17 and PG 18.
+- **Smoke test.** RDS, Aurora, Cloud SQL, Supabase, Neon, Crunchy
+  Bridge (any tier with PG 17+ available; 10⁷ rows ingested over
+  ≤10 minutes; SLA: each policy job completes within `2 ×
+  schedule_interval` measured at the 95th percentile over 10
+  runs). Verify each policy runs under `pg_cron` and under PgQue's
+  ticker pattern from an external driver.
+- **Scale benchmark.** A single self-hosted PG 18 instance
+  ingests **10¹⁰ rows** into one series table over 30 days of
+  synthetic metric workload, with retention + cagg + compression
+  + recompression policies all running. **Reference hardware**:
+  local NVMe (no network-attached block storage), ~128 GiB RAM,
+  modern many-core x86. Reported numbers: ingest p50/p95, cagg
+  refresh p95 latency, compression throughput (rows/sec/chunk),
+  on-disk size (compressed vs heap+TOAST), p95 query latency on
+  representative range scans. Exact CPU count and NVMe throughput
+  floor pinned after the first dry-run.
+- **Compression benchmark.** NYC taxi + devops-metrics public
+  datasets: ratio (heap + TOAST, excl. indexes) and scan latency
+  on PgSeries vs uncompressed PG, broken down by column type.
+- **Cagg correctness.** Out-of-order writes within `refresh_lag`
+  are reconciled by the next refresh; writes outside the window
+  appear in `pgseries_information.cagg_lag`. Straddle-bucket test
+  asserts no double-count and no missed rows across the watermark.
+- **Compressed write path.**
+  - `error` mode raises with the documented message.
+  - `staging` mode round-trips row count and aggregate values
+    through the recompression merge.
+  - `auto_decompress` mode round-trips correctly under
+    concurrent writers (per-segment advisory lock test).
+- **Read-only enforcement.** Trigger raises on `INSERT`/
+  `UPDATE`/`DELETE`/`TRUNCATE` against a compressed chunk;
+  `revoke` denies before the trigger fires.
+- **Compression swap.** `lock_timeout` retry test under contention;
   no orphaned partitions, no half-detached state.
-- **Chunk lease vs retention:** retention against an actively
+- **Chunk lease vs retention.** Retention against an actively
   compressing chunk waits or skips, never deadlocks.
+- **Default-partition catch.** Pre-creation deliberately disabled;
+  inserts arrive against ranges with no partition; default-
+  partition trigger creates the partition, re-routes the row, no
+  rows left in `…_default` after a healthy tick.
+- **Space-partition catalog forward-compatibility.** v0.1 catalog
+  round-trips a `dimension_type = 'space_hash'` row written by a
+  v0.2 simulation harness without schema migration.
 - Red/green TDD for `pgseries-api`; `pgseries-core` covered by
-  regression tests against PG 15/16/17/18.
+  regression tests against PG 17 and PG 18.
 
 ## Open questions
 
-- Default chunk size: time-based (1 day), row-based (~3 × 10⁷), or
-  adaptive? At the 10¹⁰-row target the two converge on ~1 day; the
-  question is which knob to expose.
-- Segment row count: trade scan amplification against TOAST
-  externalization. Default 1 000; revisit after benchmarks.
-- Lossy float requantization: opt-in per column at table creation, or
-  per compression policy?
-- Table abstraction name: `series_table` (default) vs `hypertable`
-  (trademark check) vs other.
-- `pgseries_information` view names: mirror `timescaledb_information`
-  exactly (familiarity) or differentiate (avoid confusion when both
-  systems coexist).
-- Cagg select-list shapes: which of `HAVING` / `ROLLUP` / window
-  functions can be lifted in v0.2 with a specified recombination rule?
-- Commit-timestamp safety margin (§3): is 1 s enough on the slowest
-  managed-PG provider observed in smoke tests?
+- Default chunk size: time-based (1 day), row-based (~3 × 10⁷),
+  or adaptive? At the 10¹⁰-row target the two converge on ~1 day.
+- Segment row count default. 1 000 to start; revisit after
+  benchmarks.
+- Lossy float requantization: opt-in per column at table creation,
+  or per compression policy?
+- Table abstraction name: `series_table` (default) vs
+  `hypertable` (trademark check) vs other.
+- `pgseries_information` view names: mirror existing time-series
+  conventions (familiarity) or differentiate?
+- Cagg select-list shapes: which of `having` / `rollup` / window
+  functions can be lifted in v0.2 with a specified recombination
+  rule?
+- Embedded-PgQ schema collision: is `pgseries_pgq` distinctive
+  enough, or do we want a per-series-table prefix?
+- v0.2 `add_dimension` API shape: hash partitions only, or hash +
+  range? List partitioning is rare in time-series and probably
+  out of scope.
