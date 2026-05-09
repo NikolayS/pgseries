@@ -5,227 +5,278 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Brief — PgSeries — TimescaleDB lite, works everywhere (v0.1)</title>
 <style>:root {
-  --bg: #fdfdfc;
-  --fg: #1a1a1a;
-  --muted: #5a5a5a;
-  --accent: #2547a3;
-  --card-bg: #f4f3ef;
-  --rule: #d8d6d1;
-  --warn-bg: #fff4d4;
-  --warn-fg: #4a3500;
+  --bg: #fdfdfc; --fg: #1a1a1a; --muted: #5a5a5a; --accent: #2547a3;
+  --card-bg: #f4f3ef; --rule: #d8d6d1;
+  --warn-bg: #fff4d4; --warn-fg: #4a3500;
+  --risk-bg: #fdecea; --risk-fg: #6a1f15;
+  --open-bg: #ecf0fb; --open-fg: #1d3a82;
+  --scope-out-bg: #f3eef6; --scope-out-fg: #4a2a63;
 }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
+  margin: 0; background: var(--bg); color: var(--fg);
   font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
-.brief {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 2.5rem 1.25rem 4rem;
-}
+.brief { max-width: 820px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
 .brief-kicker {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.78rem;
-  color: var(--muted);
-  margin: 0 0 0.4rem;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  font-size: 0.78rem; color: var(--muted); margin: 0 0 0.4rem;
 }
-.brief-title {
-  font-size: 2.1rem;
-  line-height: 1.15;
-  margin: 0 0 0.6rem;
-}
-.brief-subtitle {
-  color: var(--muted);
-  margin: 0 0 1.2rem;
-}
+.brief-title { font-size: 2.1rem; line-height: 1.15; margin: 0 0 0.6rem; }
+.brief-subtitle { color: var(--muted); margin: 0 0 1.2rem; }
 .brief-subtitle code {
-  background: var(--card-bg);
-  padding: 0.05em 0.35em;
-  border-radius: 3px;
+  background: var(--card-bg); padding: 0.05em 0.35em; border-radius: 3px;
 }
 .brief-warning {
-  background: var(--card-bg);
-  border-left: 3px solid var(--accent);
-  padding: 0.7rem 0.95rem;
-  margin: 0 0 1.5rem;
-  font-size: 0.92rem;
+  background: var(--card-bg); border-left: 3px solid var(--accent);
+  padding: 0.7rem 0.95rem; margin: 0 0 1.5rem; font-size: 0.92rem;
 }
 .brief-fallback {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border: 1px solid #e3c878;
-  border-radius: 4px;
-  padding: 0.7rem 0.95rem;
-  margin: 0 0 1.5rem;
-  font-size: 0.92rem;
+  background: var(--warn-bg); color: var(--warn-fg);
+  border: 1px solid #e3c878; border-radius: 4px;
+  padding: 0.7rem 0.95rem; margin: 0 0 1.5rem; font-size: 0.92rem;
 }
-.brief-section-title {
-  font-size: 1.2rem;
-  border-bottom: 1px solid var(--rule);
-  padding-bottom: 0.3rem;
-  margin: 2.2rem 0 1rem;
-}
-.brief-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 0.6rem;
-  margin: 0;
-}
-.brief-meta-card {
-  background: var(--card-bg);
-  padding: 0.55rem 0.75rem;
-  border-radius: 4px;
-}
-.brief-meta-card dt {
-  font-size: 0.74rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 0 0 0.15rem;
-}
-.brief-meta-card dd {
-  margin: 0;
-  font-size: 0.95rem;
-  word-break: break-word;
-}
-.brief-section-list {
-  list-style: decimal inside;
-  padding: 0;
-  margin: 0;
-}
-.brief-section-list li {
-  margin: 0 0 1rem;
-  padding-left: 0.4rem;
-}
-.brief-section-list h3 {
-  display: inline;
-  font-size: 1rem;
-  margin: 0;
-}
-.brief-section-list p {
-  margin: 0.3rem 0 0 1.4rem;
-  color: var(--muted);
-  font-size: 0.95rem;
-}
-.brief-timeline-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  border-left: 2px solid var(--rule);
-}
-.brief-timeline-list > li {
-  padding: 0.4rem 0 1rem 1rem;
-  margin-left: -2px;
-  border-left: 2px solid transparent;
-}
-.brief-timeline-list > li:hover {
-  border-left-color: var(--accent);
-}
-.brief-timeline-list header {
-  font-size: 0.95rem;
-  margin-bottom: 0.25rem;
-}
-.brief-timeline-list time {
-  color: var(--muted);
-  font-size: 0.88rem;
-}
-.brief-timeline-list ul {
-  margin: 0.3rem 0 0;
-  padding-left: 1.2rem;
-}
-.brief-empty {
-  color: var(--muted);
-  font-style: italic;
-}
-.brief-footer {
-  margin-top: 3rem;
-  padding-top: 1rem;
+.brief-section, .brief-goal {
+  margin: 2rem 0;
+  padding-top: 1.2rem;
   border-top: 1px solid var(--rule);
-  color: var(--muted);
-  font-size: 0.88rem;
 }
-.brief-footer p { margin: 0 0 0.4rem; }
+.brief-section h2, .brief-goal h2 {
+  font-size: 1.35rem; margin: 0 0 0.6rem;
+}
+.brief-section p, .brief-goal p { margin: 0 0 0.7rem; }
+.brief-section ul { margin: 0 0 0.8rem; padding-left: 1.4rem; }
+.brief-section ul li { margin: 0 0 0.25rem; }
+.brief-section .brief-more { color: var(--muted); list-style: none; margin-left: -1.4rem; }
+.brief-section pre {
+  background: #f6f4ee; border: 1px solid var(--rule);
+  border-radius: 4px; padding: 0.75rem 0.9rem;
+  overflow-x: auto; font-size: 0.88rem; line-height: 1.4;
+  margin: 0 0 0.8rem;
+}
+.brief-section pre code { background: none; padding: 0; }
+.brief-subsections { margin: 0.5rem 0 0.8rem; font-size: 0.95rem; }
+.brief-subsections > summary { cursor: pointer; color: var(--muted); }
+.brief-subsections ol { margin: 0.4rem 0 0; padding-left: 1.4rem; }
+.brief-section-scope-out { background: var(--scope-out-bg); color: var(--scope-out-fg); padding: 0.9rem 1rem; border-radius: 4px; border-top: none; }
+.brief-section-risks { background: var(--risk-bg); color: var(--risk-fg); padding: 0.9rem 1rem; border-radius: 4px; border-top: none; }
+.brief-section-open-questions { background: var(--open-bg); color: var(--open-fg); padding: 0.9rem 1rem; border-radius: 4px; border-top: none; }
+.brief-section-scope-out h2::before { content: "Out of scope · "; opacity: 0.7; }
+.brief-section-scope-out h2 { display: none; }
+.brief-section-scope-out::before {
+  content: "Out of scope"; display: block; font-weight: 600; font-size: 1.35rem; margin-bottom: 0.5rem;
+}
+.brief-empty { color: var(--muted); font-style: italic; }
+.brief-provenance {
+  margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule);
+  color: var(--muted); font-size: 0.84rem;
+}
+.brief-provenance p { margin: 0 0 0.4rem; }
 a { color: var(--accent); }
 code {
-  font: inherit;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.92em;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #15171c;
-    --fg: #e6e6e6;
-    --muted: #9a9a9a;
-    --accent: #8ab4ff;
-    --card-bg: #21242b;
-    --rule: #2c2f37;
-    --warn-bg: #3a3215;
-    --warn-fg: #ffe49a;
+    --bg: #15171c; --fg: #e6e6e6; --muted: #9a9a9a; --accent: #8ab4ff;
+    --card-bg: #21242b; --rule: #2c2f37;
+    --warn-bg: #3a3215; --warn-fg: #ffe49a;
+    --risk-bg: #3a1f1a; --risk-fg: #ffb1a4;
+    --open-bg: #1f2a4a; --open-fg: #b8c8ff;
+    --scope-out-bg: #2c1f3a; --scope-out-fg: #d2b8ee;
   }
+  .brief-section pre { background: #1c1f25; }
 }
 @media print {
   .brief { max-width: none; padding: 0; }
-  .brief-warning, .brief-fallback { break-inside: avoid; }
+  .brief-warning, .brief-fallback, .brief-section { break-inside: avoid; }
 }</style>
 </head>
 <body>
 <main class="brief">
-<header class="brief-header">
+<header class="brief-hero">
 <p class="brief-kicker">Brief — derivative summary</p>
 <h1 class="brief-title">PgSeries — TimescaleDB lite, works everywhere</h1>
 <p class="brief-subtitle">
-Slug <code>pgseries</code> ·
+<code>pgseries</code> ·
  Version v0.1 ·
- Published <time>2026-05-09T13:00:00Z</time>
+ Published <time>2026-05-09T13:00:00Z</time> ·
+ <a href="./SPEC.md">canonical SPEC.md →</a>
 </p>
 <p class="brief-warning">
-This is a summarized derivative of the spec, not the spec itself.
- See <a href="./SPEC.md">SPEC.md</a> for the canonical document.
+Summary, not the spec. Skim this for shape, architecture, scope, risks, decisions, and open questions in 5–10 minutes; consult <a href="./SPEC.md">SPEC.md</a> for the full text.
 </p>
 </header>
-<section class="brief-meta" aria-labelledby="brief-meta-h">
-<h2 id="brief-meta-h" class="brief-section-title">At a glance</h2>
-<dl class="brief-meta-grid">
-<div class="brief-meta-card"><dt>Rounds</dt><dd>0</dd></div>
-<div class="brief-meta-card"><dt>Exit reason</dt><dd>—</dd></div>
-<div class="brief-meta-card"><dt>Persona</dt><dd>—</dd></div>
-<div class="brief-meta-card"><dt>Lead</dt><dd>—</dd></div>
-<div class="brief-meta-card"><dt>Reviewer A</dt><dd>—</dd></div>
-<div class="brief-meta-card"><dt>Reviewer B</dt><dd>—</dd></div>
-</dl>
-</section>
 <section class="brief-goal">
-<h2 class="brief-section-title">Goal</h2>
-<p>**Hypertables, continuous aggregates, columnar compression, retention.** The familiar time-series surface, on any Postgres 17+. No C of our own, no `shared_preload_libraries`, no restart. Apache-2.0.</p>
+<h2>Goal</h2>
+<p>PgSeries delivers TimescaleDB-shape time-series ergonomics on any Postgres 17+ — managed, self-hosted, or laptop — using only pure SQL and PL/pgSQL. The single-file install gives users hypertables, continuous aggregates, columnar compression, and retention policies under the same names and call shapes TimescaleDB users already know, trading the ratio of C-extension columnstores for the reach of &quot;runs anywhere Postgres runs&quot;. v0.1 is sized for 10 billion rows in a single series table on a single managed-PG instance.</p>
 </section>
-<section class="brief-toc" aria-labelledby="brief-toc-h">
-<h2 id="brief-toc-h" class="brief-section-title">What's in the spec</h2>
-<ol class="brief-section-list">
-<li><h3>Scale target</h3><p>**v0.1 is sized for 10¹⁰ rows in a single series table** on a single managed-PG instance.</p></li>
-<li><h3>Architecture</h3><p>Each of the four big problems gets its own subsection here.</p></li>
-<li><h3>Detailed design</h3></li>
-<li><h3>Feature mapping (for TimescaleDB users)</h3><p>A reference for readers familiar with TimescaleDB&#39;s surface, so you can tell at a glance what maps to what.</p></li>
-<li><h3>Non-goals</h3><p>- Match TimescaleDB-class **8–15×** compression ratios on metric workloads.</p></li>
-<li><h3>Acceptance criteria</h3><p>- **Install.** `\i pgseries.sql` installs cleanly on stock PG 17 and PG 18 in a single transaction.</p></li>
-<li><h3>Open questions</h3><p>- Default chunk size: time-based (1 day), row-based (~3 × 10⁷), or adaptive?</p></li>
-</ol>
+<section class="brief-section brief-section-generic">
+<h2>Related work</h2>
+<p>PgSeries isn&#39;t the first attempt to bring time-series ergonomics to managed Postgres without TimescaleDB&#39;s TSL. The closest in spirit is <strong>[pg_timeseries](https://github.com/ChuckHend/pg_timeseries)</strong> (PostgreSQL license; originally Tembo, community-maintained after Tembo&#39;s closure) — a real C extension that wraps <strong>Citus columnar</strong> for compression. If your provider allows installing it, pg_timeseries will compress harder than PgSeries can; Citus columnar is a real columnstore, parallel-arrays-in-TOAST is not.</p>
+<p>PgSeries trades raw ratio for <strong>reach</strong>. Zero extensions of our own means it runs on:</p>
+<p><code>shared_preload_libraries</code>.</p>
+<ul>
+<li>locked-down RDS parameter groups that ban third-party extensions,</li>
+<li>providers that haven&#39;t whitelisted pg_timeseries / Citus columnar,</li>
+<li>internal-policy environments that allow only PG built-ins,</li>
+<li>ad-hoc PG clusters where the operator can&#39;t restart for</li>
+</ul>
 </section>
-<section class="brief-timeline" aria-labelledby="brief-timeline-h">
-<h2 id="brief-timeline-h" class="brief-section-title">Round timeline</h2>
-<ol class="brief-timeline-list">
-<li>
-<header><strong>v0.1</strong> · <time>2026-05-09</time></header>
-</li>
-</ol>
+<section class="brief-section brief-section-generic">
+<h2>Scale target</h2>
+<p><strong>v0.1 is sized for 10¹⁰ rows in a single series table</strong> on a single managed-PG instance. Every other number in this spec is derived against that target.</p>
+<p>Working back from 10B rows, with default 1-day chunks and 1-year retention:</p>
+<p>| | | |---|---| | Chunks | <strong>365</strong> (one per day) | | Rows per chunk | ~<strong>2.7 × 10⁷</strong> | | Average ingest | <strong>~317 rows/sec</strong> uniform | | Raw heap+TOAST | ~<strong>320 GiB</strong> at 32 B/row | | Compressed (2–4×) | <strong>~80–160 GiB</strong> | | Per-chunk segmentby cap | <strong>~10⁴</strong> (compression-ratio constraint) |</p>
 </section>
-<footer class="brief-footer">
-<p>Generated by <code>samospec brief pgseries</code> on <time>2026-05-09T12:58:31.082Z</time>. Re-run after each publish to refresh.</p>
-<p>Canonical document: <a href="./SPEC.md">SPEC.md</a>.</p>
+<section class="brief-section brief-section-architecture">
+<h2>Architecture</h2>
+<p>Each of the four big problems gets its own subsection here. Detailed design lives in <em>Detailed design</em> further down; this section is the map.</p>
+<p>Series tables are native PG range-partitioned tables on the time column. A PgQue-driven pre-creator job creates partitions ahead of the write frontier — typically a week ahead at default settings — so the hot path is just PG&#39;s own row-routing, with no PgSeries code in it at all.</p>
+<p><strong>Misses go to <code>DEFAULT</code>, not into a trigger that does DDL.</strong> An earlier draft of this spec had a <code>BEFORE INSERT</code> trigger on the default partition that created the missing partition mid-statement and re-routed the row. That doesn&#39;t work on real PG: ATTACH PARTITION conflicts with the parent&#39;s running INSERT lock; tuple routing is resolved before the trigger fires; for a multi-row <code>COPY</code> only the first row could possibly succeed inside the statement&#39;s snapshot. The trigger pattern is gone.</p>
+<ul>
+<li><code>select count(*) from &lt;table&gt;_default group by time-bucket</code> to</li>
+</ul>
+<pre data-lang="sql"><code class="language-sql">select bucket, finalize_agg(combined_state) as result
+from (
+  select bucket, partial_state as state
+  from &lt;cagg&gt;_partials
+  union all
+  select time_bucket(interval, time) as bucket,
+         agg_state(value) as state
+  from &lt;source&gt;
+  where time &gt;= materialization_watermark
+  group by 1
+) merged
+group by bucket;</code></pre>
+<pre data-lang="sql"><code class="language-sql">alter table &lt;chunk_compressed&gt;
+  add constraint match_bounds check (time &gt;= L and time &lt; U) not valid;
+alter table &lt;chunk_compressed&gt; validate constraint match_bounds;
+-- ^ scans the (small) compressed sibling once, off-line of parent
+
+set local lock_timeout = &#39;1s&#39;;
+begin;
+alter table &lt;table&gt; detach partition &lt;chunk&gt;;
+-- heap kept; will be reused as the staging sibling
+alter table &lt;table&gt; attach partition &lt;chunk_compressed&gt;
+  for values from (L) to (U);
+-- ATTACH skips its validation scan because match_bounds proves the rows fit
+commit;</code></pre>
+<details class="brief-subsections">
+<summary>Subsections (7)</summary>
+<ol><li>1. Time partitioning — pre-create ahead, default-partition stashes misses</li>
+<li>2. Continuous aggregates — embedded PgQue tick + data-time invalidation log</li>
+<li>3. Compression — columnar siblings, BRIN-skipping, no planner hooks</li>
+<li>4. Late writes — heap stays as the staging sibling</li>
+<li>5. Embedded PgQue — three uses, one engine</li>
+<li>6. Space partitioning — designed in, API in v0.2</li>
+<li>7. Job scheduling</li></ol>
+</details>
+</section>
+<section class="brief-section brief-section-architecture">
+<h2>Detailed design</h2>
+<p>The subsections below expand on the architecture above in the same order: series tables, retention, continuous aggregates, compression pipeline, BRIN data skipping, the read view, the compression swap, write paths on compressed chunks, time helpers, aggregates, the operational surface, migration, and roles. Anything load-bearing ends up with an acceptance criterion below.</p>
+<p>Native PG range partitioning by time. A <code>DEFAULT</code> partition exists on every series table. The pre-creator runs as a PgQue job (<code>pgseries.system_jobs</code> event type <code>precreate_chunks</code>) and creates N partitions ahead of the write frontier (default <code>pre_create_n = 7</code> for daily chunks). The hot path involves no PgSeries code and no triggers on any leaf partition or on the parent.</p>
+<p>The <code>mover</code> job (event type <code>move_default</code>) runs on the same PgQue tick. It scans <code>&lt;table&gt;_default</code> for the time-bucket of the oldest row, claims the corresponding <code>chunk_lease</code>, creates the partition, attaches it, and moves the rows out of default in a single <code>with moved as (delete from &lt;table&gt;_default where time &gt;= L and time &lt; U returning *) insert into &lt;table&gt; select * from moved</code>.</p>
+<ul>
+<li>safety_margin` for the real-time half (§2). Both halves use</li>
+</ul>
+<pre><code>pending  → ready              (pre-creator: partition created, attached)
+ready    → compressing        (compression policy claims)
+compressing → compressed      (compression swap committed)
+compressed  → compressing     (recompression: merge staging back in)
+ready    → leased_for_drop    (retention claims, holds across DROP)
+compressed → leased_for_drop  (retention claims, holds across DROP)</code></pre>
+<pre data-lang="sql"><code class="language-sql">create trigger &lt;src&gt;_cagg_inv_iud
+  after insert or update or delete on &lt;src&gt;
+  referencing old table as old new table as new
+  for each statement execute function pgseries.cagg_emit_invalidation();
+
+create trigger &lt;src&gt;_cagg_inv_truncate
+  before truncate on &lt;src&gt;
+  for each statement execute function pgseries.cagg_emit_truncate();</code></pre>
+<pre><code>loop:
+  batch := pgque.next_batch(queue)
+  for each event in batch:
+    union the event&#39;s (min_time, max_time) into refresh_range
+  bucket_set := dirty buckets in pgseries.cagg_invalidation
+                that overlap refresh_range
+  for bucket b in bucket_set:
+    insert/update &lt;cagg&gt;_partials for b from &lt;src&gt;
+    set dirty = false in cagg_invalidation
+  pgque.finish_batch(batch)</code></pre>
+<pre data-lang="sql"><code class="language-sql">create view &lt;table&gt; as
+  select * from &lt;table&gt;_uncompressed_branch  -- the chunk heap
+  union all
+  select c.unpacked.*
+  from (
+    select compressed_row
+    from &lt;table&gt;_compressed_branch
+    where seg_max_ts &gt;= $a and seg_min_ts &lt;= $b
+      -- segmentby predicates pushed here too
+  ) f,
+  lateral pgseries.unpack_segment(f.compressed_row) as c(unpacked);</code></pre>
+<details class="brief-subsections">
+<summary>Subsections (8)</summary>
+<ol><li>Series tables</li>
+<li>Retention</li>
+<li>Continuous aggregates — implementation details</li>
+<li>Compression — pipeline details</li>
+<li>Read view</li>
+<li>Write path on compressed chunks</li>
+<li>Time helpers</li>
+<li>Aggregates</li></ol>
+</details>
+</section>
+<section class="brief-section brief-section-generic">
+<h2>Feature mapping (for TimescaleDB users)</h2>
+<p>A reference for readers familiar with TimescaleDB&#39;s surface, so you can tell at a glance what maps to what. This is not a parity goal — the real commitments are in <em>Architecture</em> and <em>Non-goals</em>.</p>
+<p>| TimescaleDB | PgSeries | |---|---| | Hypertables | Series tables (native PG range partitioning + DEFAULT-partition stash + mover) | | Chunks | Same — one PG partition per chunk | | Retention policies | <code>add_retention_policy</code> (refuses to drop chunks overlapping cagg refresh windows) | | Compression policies | <code>add_compression_policy</code> | | Recompression | <code>add_recompression_policy</code> (separate scheduled policy that merges staging back into compressed segments) | | Columnar compression | Sibling <code>_compressed</code> table; segmentby + orderby; FOR + dict + null bitmap + lz4. Target 2–4× on mixed metric workloads | | Decompression API | <code>decompress_chunk</code> | | Continuous aggregates | <code>add_continuous_aggregate</code>; partial-form storage by default, finalized on opt-in; embedded PgQue + data-time invalidation log | | Real-time aggregation | Cagg view returns <code>finalize_agg(combine_agg(...))</code> over union of materialized partials + on-the-fly partials past the watermark | | Hierarchical caggs (cagg-on-cagg) | Both fixed-width and calendar-width buckets; child width must divide parent&#39;s | | Reorder / clustering policies | <code>CLUSTER</code> on chunks via PgQue schedule | | <code>time_bucket()</code> | Pure SQL, full-width + calendar parity | | <code>time_bucket_gapfill()</code> | Pure SQL, single-group-key in v0.1 | | <code>first()</code> / <code>last()</code> | Pure-SQL custom aggregates with combinefuncs (so they work in partial-form caggs) | | Chunk exclusion / data skipping | Partition pruning + BRIN <code>minmax_multi_ops</code> + view-layer predicate pushdown via <code>LATERAL</code> | | Job scheduler | PgQue ticker (<code>pg_cron</code>, <code>pg_timetable</code>, or any external driver); fixed and floating schedules; per-job advisory lock prevents overlapping runs | | Job control | <code>alter_job</code>, <code>pause_job</code>, <code>resume_job</code>, <code>run_job_now</code>, retry-with-backoff, DLQ | | <code>timescaledb_information</code> views | <code>pgseries_information.{jobs, job_stats, job_errors, chunks, chunks_detailed_size, hypertable_size, compression_settings, compressed_chunk_stats, continuous_aggregates, cagg_lag, default_partition_lag}</code> | | <code>ts_insert_blocker</code> | <code>error</code>-mode write trigger on compressed sibling (default mode is staging-via-heap, no blocker) | | <code>show_chunks</code> / <code>drop_chunks</code> | Same names | | <code>refresh_continuous_aggregate(cagg, start, end)</code> | Same name | | Manual cagg backfill (<code>with_data =&gt; false</code> + later refresh) | Same | | <code>pgseries.add_index(table, definition)</code> | Like <code>CREATE INDEX ON &lt;hypertable&gt;</code> but auto-applies to future chunks too | | Roles | <code>pgseries_reader</code>, <code>pgseries_writer</code>, <code>pgseries_admin</code> |</p>
+<p>| TimescaleDB | PgSeries | |---|---| | Hyperfunctions (<code>percentile_agg</code>, <code>histogram</code>, <code>counter_agg</code>, <code>time_weight</code>, ASOF, <code>locf</code>, <code>interpolate</code>) | Use PG built-ins (<code>percentile_cont</code>, <code>width_bucket</code>) and <code>DISTINCT ON</code> instead. Hand-rolled PL/pgSQL versions are too slow to ship. | | Approximation sketches | <code>hll</code> supported (broadly available on managed PG); <code>tdigest</code> not on the managed-PG happy path; pure-SQL t-digest is v0.2-conditional. | | Multi-group <code>time_bucket_gapfill</code> | Single-group-key only in v0.1. | | Lossless float compression | Gorilla unavailable in PL/pgSQL; v0.1 ships only opt-in lossy requantization. Floats compress 1.5–2.5× without it. | | Cagg select-list shapes | Aggregates without combinefuncs, <code>HAVING</code>, <code>GROUPING SETS</code>/<code>ROLLUP</code>/<code>CUBE</code>, and window functions are rejected by <code>add_continuous_aggregate()</code>. Wrap the cagg view in a regular view to apply them at query time. | | <code>auto_decompress</code> write mode | Removed. Default is staging-via-heap; recompression policy merges back. The TimescaleDB direction since 2.11. | | Compression ratio | Target <strong>2–4×</strong> on mixed metric workloads (vs Timescale&#39;s 8–15× with Gorilla; vs pg_timeseries&#39; Citus-columnar numbers). | | Direct-to-leaf-partition writes | Revoked at v0.1 to keep statement triggers honest. Writes must go through the parent. |</p>
+<details class="brief-subsections">
+<summary>Subsections (3)</summary>
+<ol><li>Supported in v0.1</li>
+<li>Partial or lossy</li>
+<li>Out of scope (v0.1 or never)</li></ol>
+</details>
+</section>
+<section class="brief-section brief-section-scope-out">
+<h2>Non-goals</h2>
+<p>PgSeries declines to compete with C-extension columnstores on raw ratio or scan speed, with TimescaleDB on its own deepest features, and with itself on going past v0.1&#39;s headline scale without the v0.2 escape hatch. Specific lines:</p>
+<p>workloads. Target 2–4×. Bit-level codecs are not feasible in PL/pgSQL.</p>
+<p>or vectorized-scan latency. Pure SQL can&#39;t; that&#39;s not where PgSeries competes.</p>
+<ul>
+<li>Match TimescaleDB-class <strong>8–15×</strong> compression ratios on metric</li>
+</ul>
+</section>
+<section class="brief-section brief-section-generic">
+<h2>Acceptance criteria</h2>
+<p>Each criterion below is either a CI-checkable artifact or a benchmark with a reportable number. v0.1 doesn&#39;t ship until every item is green on PG 17 and PG 18.</p>
+<p>and PG 18 in a single transaction. Bundle includes pgque-core loaded into a <code>pgseries_pgque</code> schema.</p>
+<p>pruning + BRIN <code>minmax_multi_ops</code> segment skipping + zero <code>Function Scan</code> on <code>unpack_segment</code> for skipped partitions. Runs in CI on PG 17 and PG 18.</p>
+<ul>
+<li><strong>Install.</strong> <code>\i pgseries.sql</code> installs cleanly on stock PG 17</li>
+</ul>
+</section>
+<section class="brief-section brief-section-open-questions">
+<h2>Open questions</h2>
+<p>Decisions still in flight before v0.1 ships. Each will be resolved either in code, in a follow-up review round, or by punting to v0.2 with a clear documented default.</p>
+<p>or adaptive? At the 10¹⁰-row target the two converge on ~1 day.</p>
+<p>benchmarks.</p>
+<ul>
+<li>Default chunk size: time-based (1 day), row-based (~3 × 10⁷),</li>
+</ul>
+</section>
+<footer class="brief-provenance">
+<p>
+Generated by <code>samospec brief pgseries</code> on <time>2026-05-09T13:35:03.167Z</time>.
+ 1 review round —
+ lead —,
+ reviewers — +
+ —.
+</p>
+<p>Re-run after each <code>samospec publish</code> to refresh. Canonical document: <a href="./SPEC.md">SPEC.md</a>.</p>
 </footer>
 </main>
 </body>
