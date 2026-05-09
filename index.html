@@ -433,6 +433,18 @@ pre {
 /* prevent any rogue overflow */
 .brief * { max-width: 100%; }
 .brief pre, .brief code, .brief .fmap-body table { max-width: 100%; }
+
+/* mobile: more horizontal breathing room (default 2ch ≈ 18px is too tight) */
+@media (max-width: 640px) {
+  .brief { padding-left: 4ch; padding-right: 4ch; }
+  .metabar-row { padding-left: 3ch; padding-right: 3ch; }
+  .brief-section-risks,
+  .brief-section-open-questions,
+  .brief-section-scope-out {
+    margin-left: -2ch; padding-left: calc(2ch - 3px);
+    margin-right: -2ch; padding-right: 2ch;
+  }
+}
 </style>
 <header class="brief-hero">
 <p class="brief-kicker">Brief — derivative summary</p>
