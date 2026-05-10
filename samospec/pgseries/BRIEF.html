@@ -434,6 +434,18 @@ pre {
 .brief * { max-width: 100%; }
 .brief pre, .brief code, .brief .fmap-body table { max-width: 100%; }
 
+/* DESKTOP: enforce reading-measure width.
+   The original `--measure: 88ch` rule wasn't winning the cascade on
+   wide viewports — content was stretching edge-to-edge. Override
+   defensively and tighten to a more readable measure. */
+:root { --measure: 78ch; }
+.brief,
+.metabar-row {
+  max-width: var(--measure) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
 /* mobile: more horizontal breathing room (default 2ch ≈ 18px is too tight) */
 @media (max-width: 640px) {
   .brief { padding-left: 4ch; padding-right: 4ch; }
