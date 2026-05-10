@@ -82,8 +82,19 @@ any data; add MAXALIGN padding, page-header overhead, free space,
 and one secondary B-tree index and a "narrow" row of `(timestamp,
 bigint, double)` ≈ 48–60 B + index, while a realistic metric row
 with a text tag and 4 doubles ≈ 100–200 B + index. The numbers
-below assume **~150 B/row** (data + indexes + bloat) — typical
-for the metrics workloads PgSeries targets.
+below assume **~150 B/row** (data + indexes, append-only) —
+typical for the **narrow time-series tables of just a few
+columns** that PgSeries targets.
+
+> **Caveat.** All numbers below assume **narrow schemas** (a
+> handful of columns) and an **append-only** ingest pattern. They
+> **do not include bloat** from sustained `UPDATE`/`DELETE`
+> activity, long-running transactions pinning the xmin horizon, or
+> autovacuum falling behind. A workload with 30–50% bloat (not
+> uncommon under heavy update / hot-row patterns) doubles raw
+> footprint. Wider schemas (10+ columns, `jsonb` tags) or extra
+> secondary indexes can multiply storage by 2–5×. Treat the
+> "Range, schema-dependent" row as a soft band, not a ceiling.
 
 Working back from 10¹⁰ rows, with default 1-day chunks and 1-year
 retention:
@@ -92,17 +103,18 @@ retention:
 |---|---|
 | Chunks | **365** (one per day) |
 | Rows per chunk | ~**2.7 × 10⁷** (steady state) |
-| Per-row footprint | ~**150 B** typical (heap + indexes + ~10% bloat) |
+| Per-row footprint | ~**150 B** typical (narrow, few columns, append-only — no bloat budget) |
 | Steady-state ingest | ~**317 rows/sec** at 1-year retention |
 | Scale-benchmark ingest | ~**3 800 rows/sec** at 30-day fill |
 | Raw heap + indexes | ~**1.5 TiB** at 150 B/row |
-| Range, schema-dependent | **~0.7–3 TiB** raw (narrow → wide) |
+| Range, schema-dependent | **~0.7–3 TiB** raw (narrow → wide; pre-bloat) |
 | Compressed (2–4×) | ~**400–800 GiB** typical |
 | Per-chunk segmentby cap | ~**10⁴** (compression-ratio constraint) |
 
-A user running narrow rows + minimal indexes lands at the bottom
-of that range; a user with a wider schema, jsonb tags, or two
-secondary indexes lands at the top.
+A user running narrow rows + minimal indexes + clean append-only
+ingest lands at the bottom of that range; a user with a wider
+schema, jsonb tags, or update-heavy traffic that bloats the heap
+lands at the top — or beyond it.
 
 10⁸–10⁹ rows is the easy case the same code handles without tuning.
 Past 10¹⁰ on a single instance, two things break first: cagg refresh
