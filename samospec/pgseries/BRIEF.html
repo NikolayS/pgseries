@@ -457,6 +457,29 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
   margin-right: auto !important;
 }
 
+/* per-section anchor links — hover-reveal `#` next to each H2.
+   Click updates URL fragment so users can copy from the address bar. */
+.anchor {
+  margin-left: 1ch;
+  color: var(--ink-3);
+  text-decoration: none;
+  font-weight: 400;
+  font-size: 0.85em;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s;
+  border-bottom: none;
+}
+.brief-goal h2:hover .anchor,
+.brief-section h2:hover .anchor,
+.anchor:focus { opacity: 1; }
+.anchor:hover { color: var(--accent); background: none; }
+@media (hover: none) {
+  /* touch devices: keep the anchor faintly visible since hover is unreliable */
+  .anchor { opacity: 0.45; }
+}
+.brief-goal h2,
+.brief-section h2 { flex-wrap: wrap; }
+
 /* mobile padding (4ch was too generous; ~1.6ch reads better) */
 @media (max-width: 640px) {
   .brief { padding-left: 1.6ch; padding-right: 1.6ch; }
@@ -486,14 +509,14 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </nav>
 
 <section class="brief-goal" id="s-goal" data-sec="01">
-<h2><span class="n">01</span><span>Goal</span></h2>
+<h2><span class="n">01</span><span>Goal</span> <a class="anchor" href="#s-goal" aria-label="Link to this section" title="Link">#</a></h2>
 <p>PgSeries delivers <strong>TimescaleDB-shape time-series ergonomics on any Postgres 17+</strong> — managed, self-hosted, or laptop — using only pure SQL and PL/pgSQL. The single-file install gives users hypertables, continuous aggregates, columnar compression, and retention policies under the same names and call shapes TimescaleDB users already know, trading the ratio of C-extension columnstores for the reach of "runs anywhere Postgres runs".</p>
 <p>Ships in <strong>baby steps</strong>: v0.1 is just managed time partitioning; each subsequent release adds one self-contained capability. The headline <em>10 billion rows</em> with 2–4× compression target lands at v0.6.</p>
 <p>Time-series sibling of <a href="https://github.com/NikolayS/PgQue">PgQue</a> — same install model, same Apache-2.0 license, same anti-extension posture. PgQue's PgQ engine is embedded for the snapshot/tick semantics that continuous aggregates and the job scheduler need.</p>
 </section>
 
 <section class="brief-section brief-section-generic" id="s-numbers" data-sec="02">
-<h2><span class="n">02</span><span>Headline numbers</span></h2>
+<h2><span class="n">02</span><span>Headline numbers</span> <a class="anchor" href="#s-numbers" aria-label="Link to this section" title="Link">#</a></h2>
 <table class="kv-table">
 <tr><td>Postgres versions</td><td>17 · 18</td><td>no 16, no &lt;16</td></tr>
 <tr><td>License</td><td>Apache-2.0</td><td>no TSL carve-outs</td></tr>
@@ -514,7 +537,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </section>
 
 <section class="brief-section brief-section-generic" id="s-stages" data-sec="03">
-<h2><span class="n">03</span><span>Release stages</span></h2>
+<h2><span class="n">03</span><span>Release stages</span> <a class="anchor" href="#s-stages" aria-label="Link to this section" title="Link">#</a></h2>
 <p>Baby steps. Each version is a tagged release with its own bundle and acceptance set; each adds one capability.</p>
 <table class="rs-table">
 <tr><td>v0.1</td><td>Time partitioning</td><td><code>create_series_table</code>, <code>precreate_chunks</code>, <code>move_default</code>, <code>show_chunks</code> / <code>drop_chunks</code> (manual), chunk-lease state machine, three roles. External scheduler required.</td></tr>
@@ -531,7 +554,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </section>
 
 <section class="brief-section brief-section-architecture" id="s-architecture" data-sec="04">
-<h2><span class="n">04</span><span>Architecture</span></h2>
+<h2><span class="n">04</span><span>Architecture</span> <a class="anchor" href="#s-architecture" aria-label="Link to this section" title="Link">#</a></h2>
 <p>Seven interlocking pieces describing the v1.0 endpoint. The hot write path stays inside PG's own row-routing; everything PgSeries-specific runs as a PgQue-scheduled job <em>outside</em> the writer's transaction. Each piece is tagged with the version that introduces it.</p>
 
 <div class="arch-piece">
@@ -738,7 +761,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </section>
 
 <section class="brief-section brief-section-generic" id="s-decisions" data-sec="05">
-<h2><span class="n">05</span><span>Decisions</span></h2>
+<h2><span class="n">05</span><span>Decisions</span> <a class="anchor" href="#s-decisions" aria-label="Link to this section" title="Link">#</a></h2>
 <p>Eight architectural decisions, in order.</p>
 <ol class="decisions">
 <li class="decision"><span class="decision-claim">Embed PgQue, don't depend on it.</span><span class="decision-why">single-file, single-transaction install on any provider; no "install pgque first" coordination.</span></li>
@@ -753,7 +776,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </section>
 
 <section class="brief-section brief-section-open-questions" id="s-open" data-sec="06">
-<h2><span class="n">06</span><span>Open questions</span></h2>
+<h2><span class="n">06</span><span>Open questions</span> <a class="anchor" href="#s-open" aria-label="Link to this section" title="Link">#</a></h2>
 <p>Tracked per version, so a release isn't blocked on a question that doesn't apply.</p>
 <ul class="callout-list">
 <li><strong>v0.1:</strong> table abstraction name (<code>series_table</code> vs <code>hypertable</code> — trademark check); mover lag SLA without bundled scheduler; default chunk size (1 day vs row-based vs adaptive).</li>
@@ -766,7 +789,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </section>
 
 <section class="brief-section brief-section-risks" id="s-risks" data-sec="07">
-<h2><span class="n">07</span><span>Risks &amp; failure modes</span></h2>
+<h2><span class="n">07</span><span>Risks &amp; failure modes</span> <a class="anchor" href="#s-risks" aria-label="Link to this section" title="Link">#</a></h2>
 <p><strong>Past 10<sup>10</sup> rows on a single instance, two things break first.</strong></p>
 <ul class="callout-list bad">
 <li><strong>Cagg refresh latency on dense backfills.</strong> Invalidation log gets dense; tunable via <code>coalesce_interval</code> and the refresh window.</li>
@@ -783,7 +806,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </section>
 
 <section class="brief-section brief-section-generic fmap" id="s-mapping" data-sec="08">
-<h2><span class="n">08</span><span>Feature mapping</span></h2>
+<h2><span class="n">08</span><span>Feature mapping</span> <a class="anchor" href="#s-mapping" aria-label="Link to this section" title="Link">#</a></h2>
 <p>Every TimescaleDB surface, with its PgSeries equivalent and the version it lands in. Three buckets — supported, partial, out of scope.</p>
 
 <details open>
@@ -854,7 +877,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </section>
 
 <section class="brief-section brief-section-generic" id="s-acceptance" data-sec="09">
-<h2><span class="n">09</span><span>Acceptance criteria</span></h2>
+<h2><span class="n">09</span><span>Acceptance criteria</span> <a class="anchor" href="#s-acceptance" aria-label="Link to this section" title="Link">#</a></h2>
 <p>Each version is its own release-blocker set. A version doesn't ship until every item below for that version (and every prior version) is green on PG 17 and PG 18. Highlights only — see <a href="./SPEC.md">SPEC.md</a> for the full per-version list.</p>
 <ol class="accept-list">
 <li><strong>v0.1.</strong> <code>\i pgseries.sql</code> installs cleanly; <code>create_series_table</code> + <code>adopt_partitioned_table</code> round-trip; <code>precreate_chunks</code> idempotent; <code>move_default</code> drains <code>…_default</code> with zero rows left under multi-row COPY; chunk-lease state machine invariant; role grants enforced.</li>
