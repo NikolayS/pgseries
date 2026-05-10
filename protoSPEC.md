@@ -114,19 +114,33 @@ retention:
 | Per-chunk segmentby cap | ~**10⁴** (compression-ratio constraint) |
 
 **Ingest is a first-class concern.** Steady-state averages above
-hide bursty real-world ingest. Targets:
+hide bursty real-world ingest. Targets (all on the reference
+machine: PG 18, local NVMe, ~128 GiB RAM, modern many-core x86):
 
-- **Single writer**, narrow row, `synchronous_commit = off`:
-  **≥10 K rows/sec**. Modern PG on local NVMe handles this
-  comfortably; PgSeries must not degrade it (no per-row PL/pgSQL
-  in the hot path; no triggers on leaf partitions; pre-creation
-  keeps DEFAULT empty).
-- **Parallel writers** (8+ connections, 16+ vCPU, local NVMe):
-  **≥100 K rows/sec aggregate**. Ingest scales near-linearly with
-  writer count until the WAL fsync ceiling — same ceiling plain PG
-  hits.
-- **`COPY` / binary protocol**, 16+ vCPU, local NVMe: **target
-  ≥250 K rows/sec aggregate**, ideally **>500 K** for batch loads.
+- **Single writer**, narrow row, `synchronous_commit = off`,
+  prepared statement, batched (~100 rows/INSERT):
+  **≥10 K rows/sec**. With single-row INSERTs and sync commit,
+  expect ~3–5 K/sec — that's PG's per-connection WAL-fsync
+  ceiling, not PgSeries overhead.
+- **Parallel writers**, batched INSERT, async commit:
+  **≥100 K rows/sec aggregate at 32–64 connections** (≥3–5 K
+  per connection × N). 8 connections gets you ~30–50 K
+  realistically; you need 32+ to crack 100 K. 16+ vCPU on the
+  reference machine.
+- **Many connections** (100+) with single-row prepared INSERTs:
+  ~**150–300 K rows/sec**. Useful as the "naive ORM at scale"
+  baseline.
+- **`COPY` / binary protocol**, 4+ streams, batch loads:
+  **≥250 K rows/sec aggregate**, **target ≥1 M** at 16+
+  streams. This is the "pre-aggregated batch loader" path that
+  most TimescaleDB benchmarks lean on.
+
+The per-connection ceiling is the WAL fsync rate of the
+underlying NVMe + PG's group commit. PgSeries doesn't change it.
+What PgSeries promises is that the **partitioning layer adds
+zero detectable overhead** on the hot path — a control benchmark
+against a hand-rolled partitioned table without PgSeries must be
+within 5 % on every line above.
 
 Compression (v0.6) runs out-of-band against cold chunks and must
 not steal ingest throughput from the hot path. Cagg invalidation
@@ -939,14 +953,21 @@ version) is green on PG 17 and PG 18.
 - **Chunk lease state machine.** Direct invariant tests cover
   every documented transition; no half-states reachable.
 - **Ingest benchmark.** On the reference machine (PG 18, local
-  NVMe, ~128 GiB RAM, 16+ vCPU): ≥**10 K rows/sec** single
-  writer (narrow row, `synchronous_commit = off`), ≥**100 K
-  rows/sec aggregate** with 8 parallel writers, ≥**250 K
-  rows/sec** via `COPY` from 4 streams. Pre-creation kept ≥7
-  days ahead throughout the run; nothing in `…_default` at
-  end. PgSeries is **not** allowed to be the bottleneck — a
-  control run against a hand-rolled partitioned table without
-  PgSeries must be within 5 % on the same hardware.
+  NVMe, ~128 GiB RAM, 16+ vCPU):
+  - ≥**10 K rows/sec** single writer (narrow row, prepared
+    statement, batched ~100 rows/INSERT, `synchronous_commit =
+    off`).
+  - ≥**100 K rows/sec aggregate** with **32–64 parallel
+    writers** (batched INSERT, async commit). 8 conns alone gets
+    ~30–50 K — that's PG's per-conn WAL-fsync ceiling, not
+    PgSeries.
+  - ≥**250 K rows/sec aggregate** via `COPY` from 4+ streams;
+    target ≥**1 M** at 16+ streams.
+
+  Pre-creation kept ≥7 days ahead throughout the run; nothing in
+  `…_default` at end. PgSeries is **not** allowed to be the
+  bottleneck — a control run against a hand-rolled partitioned
+  table without PgSeries must be within 5 % on the same hardware.
 - **Roles.** `pgseries_writer` cannot read another tenant's
   `chunk_lease` rows; `pgseries_reader` cannot mutate any catalog;
   `pgseries_admin` covers both.
