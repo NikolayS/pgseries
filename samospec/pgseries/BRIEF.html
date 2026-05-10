@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Brief — PgSeries — TimescaleDB lite, works everywhere (v0.1)</title>
+<title>Brief — PgSeries — "TimescaleDB lite", works everywhere (v0.1)</title>
 <style>:root {
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --fs: 15px; --lh: 1.5rem; --measure: 88ch;
@@ -259,7 +259,7 @@ pre {
 <main class="brief">
 <header class="brief-hero">
 <p class="brief-kicker">Brief — derivative summary</p>
-<h1 class="brief-title">PgSeries — TimescaleDB lite, works everywhere</h1>
+<h1 class="brief-title">PgSeries — "TimescaleDB lite", works everywhere</h1>
 <p class="brief-subtitle">
 <code>pgseries</code> ·
  Version v0.1 ·
@@ -545,14 +545,14 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <p>Baby steps. Each version is a tagged release with its own bundle and acceptance set; each adds one capability.</p>
 <table class="rs-table">
 <tr><td>v0.1</td><td>Time partitioning</td><td><code>create_series_table</code>, <code>precreate_chunks</code>, <code>move_default</code>, <code>show_chunks</code> / <code>drop_chunks</code> (manual), chunk-lease state machine, three roles. External scheduler required.</td></tr>
-<tr><td>v0.2</td><td>Retention + scheduler</td><td>Embed PgQue. <code>system_jobs</code> runner with per-job advisory lock; <code>add_retention_policy</code>; <code>alter_job</code> / <code>pause</code> / <code>resume</code> / <code>run_now</code>.</td></tr>
+<tr><td>v0.2</td><td>Retention + scheduler + space partitioning</td><td>Embed PgQue. <code>system_jobs</code> runner; <code>add_retention_policy</code>; job control API. <strong><code>add_dimension(table, col, type, n)</code> ships here</strong> (pulled from v1.0 — TS's biggest insert-speed lever). <strong><code>pgseries-parallel-copy</code></strong> chunk-affinity COPY loader: ≥1 M rows/sec aggregate.</td></tr>
 <tr><td>v0.3</td><td>Caggs (materialized)</td><td><code>add_continuous_aggregate</code>, <code>time_bucket()</code>, <code>refresh_continuous_aggregate(start, end)</code>. AFTER STATEMENT triggers + PgQue tick + data-time log. Backdated DML correct.</td></tr>
 <tr><td>v0.4</td><td>Real-time aggregation</td><td>Partial-form storage; cagg view = <code>finalize_agg(combine_agg(…))</code> over materialized + on-the-fly past watermark. v0.3 caggs auto-rebuild. Select-list validation.</td></tr>
 <tr><td>v0.5</td><td>Hierarchical + helpers</td><td>cagg-on-cagg (fixed + calendar buckets), <code>time_bucket_gapfill()</code> (single-group-key), <code>first()</code> / <code>last()</code> with combinefuncs.</td></tr>
 <tr class="headline"><td>v0.6</td><td>Columnar compression</td><td><code>add_compression_policy</code>, <code>_compressed</code> siblings, FOR + dict + null bitmap + lz4, BRIN <code>minmax_multi_ops</code>, LATERAL read view, pre-CHECK'd ATTACH swap. <strong>Headline 10<sup>10</sup>-row scale benchmark blocks here.</strong></td></tr>
 <tr><td>v0.7</td><td>Late-write staging</td><td><code>add_recompression_policy</code>; chunk heap reused as staging; modes <code>staging</code> (default) / <code>error</code>. <code>ON CONFLICT</code> on hot path. No <code>auto_decompress</code>.</td></tr>
 <tr><td>v0.8</td><td>Reorder + obs + hll</td><td><code>add_reorder_policy</code> (<code>CLUSTER</code>), <code>hll</code>, <code>add_index</code> (auto-applies to new chunks), full <code>pgseries_information</code> surface.</td></tr>
-<tr><td>v1.0</td><td>Space partitioning</td><td><code>add_dimension(table, col, type, n)</code> writes <code>'space_*'</code> rows the catalog has been reserving since v0.1. Multi-dim chunk identity.</td></tr>
+<tr><td>v1.0</td><td>API stability + GA</td><td>All v0.x APIs frozen; deprecation shims dropped; full doc set; the "safe to depend on" mark. No new headline feature.</td></tr>
 </table>
 <p class="brief-warning"><strong>Beyond v1.0.</strong> DuckDB / Apache Arrow as opt-in acceleration on installs that allow extensions; pure-SQL t-digest; multi-group <code>time_bucket_gapfill()</code> with <code>locf</code>/<code>interpolate</code>; remaining hyperfunctions (<code>counter_agg</code>, <code>time_weight</code>, ASOF, full <code>percentile_agg</code>).</p>
 </section>
@@ -754,8 +754,8 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 </div>
 
 <div class="arch-piece">
-<div class="arch-piece-h"><span class="arch-piece-num">06</span><h3>Space partitioning <em>[catalog v0.1 · API v1.0]</em></h3></div>
-<p>Catalog supports it from day zero: <code>pgseries.dimension</code> rows with <code>dimension_type</code>, chunk identity is a tuple. v0.1–v0.8 only write <code>'time'</code> rows; v1.0 ships <code>add_dimension()</code> and starts writing <code>'space_*'</code> rows.</p>
+<div class="arch-piece-h"><span class="arch-piece-num">06</span><h3>Space partitioning <em>[catalog v0.1 · API v0.2]</em></h3></div>
+<p>Hash sub-partitioning is TimescaleDB's biggest single-node insert-speed lever — without it, the current time-range chunk is the write hotspot. Catalog reserves the shape from v0.1; <code>add_dimension()</code> ships at <strong>v0.2</strong>. After v0.2, every series table's chunk identity is a tuple: <code>(time_lower, time_upper, space_partition_index)</code>. Compression, retention, caggs, and the rest treat chunks as a *set*, so each later feature picks up multi-dim without rework.</p>
 </div>
 
 <div class="arch-piece">
@@ -787,7 +787,8 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <li><strong>v0.2:</strong> embedded-PgQue schema collision (is <code>pgseries_pgque</code> distinctive enough?); <code>pgseries_information</code> view names — mirror or differentiate?</li>
 <li><strong>v0.4:</strong> when (if ever) is <code>materialized_only</code> the better default? Cagg select-list shapes — which can be lifted in v0.5+?</li>
 <li><strong>v0.6:</strong> segment row count default (1 000 to start); lossy float requantization — opt-in per column or per policy?</li>
-<li><strong>v1.0:</strong> <code>add_dimension</code> API shape — hash only, or hash + range?</li>
+<li><strong>v0.2:</strong> <code>add_dimension</code> API shape — hash only, or hash + range? <code>pgseries.tune()</code> apply mode: which GUCs to refuse on managed PG? <code>pgseries-parallel-copy</code> packaging — Python script vs Bash wrapper vs SQL function?</li>
+<li><strong>v1.0:</strong> which deprecation shims to drop.</li>
 <li><strong>Beyond v1.0:</strong> DuckDB / Apache-Arrow opt-in acceleration on installs that allow extensions.</li>
 </ul>
 </section>
@@ -797,7 +798,7 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <p><strong>Past 10<sup>10</sup> rows on a single instance, two things break first.</strong></p>
 <ul class="callout-list bad">
 <li><strong>Cagg refresh latency on dense backfills.</strong> Invalidation log gets dense; tunable via <code>coalesce_interval</code> and the refresh window.</li>
-<li><strong>PL/pgSQL compression throughput per chunk.</strong> Group-by-segmentby costs <em>O(rows/chunk)</em>. 27M rows/chunk benchmarks in minutes; &gt;10<sup>8</sup> rows/chunk would not. <code>add_dimension</code> (v1.0) is the escape hatch.</li>
+<li><strong>PL/pgSQL compression throughput per chunk.</strong> Group-by-segmentby costs <em>O(rows/chunk)</em>. 27M rows/chunk benchmarks in minutes; &gt;10<sup>8</sup> rows/chunk would not. <code>add_dimension</code> (v0.2) is the escape hatch — hash sub-partitions reduce rows/chunk.</li>
 </ul>
 <p><strong>Watch-outs at v0.1's scale.</strong></p>
 <ul class="callout-list warn">
@@ -840,7 +841,9 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <tr><td><code>ts_insert_blocker</code></td><td><code>error</code>-mode write trigger (default mode is staging-via-heap)</td><td>v0.7</td></tr>
 <tr><td>Reorder / clustering</td><td><code>CLUSTER</code> on chunks via PgQue schedule</td><td>v0.8</td></tr>
 <tr><td><code>timescaledb_information</code></td><td>Full <code>pgseries_information</code> surface (subset shipped earlier)</td><td>v0.8</td></tr>
-<tr><td><code>add_dimension</code></td><td>Catalog ready since v0.1; API ships at v1.0</td><td>v1.0</td></tr>
+<tr><td><code>add_dimension</code> (space partitioning)</td><td>Catalog ready since v0.1; API ships at v0.2 (pulled from v1.0)</td><td>v0.2</td></tr>
+<tr><td><code>pgseries-parallel-copy</code></td><td>Chunk-affinity sharded <code>COPY</code> loader for ≥1 M rows/sec aggregate</td><td>v0.2</td></tr>
+<tr><td><code>pgseries.tune()</code></td><td>Print + apply recommended GUC bundle (<code>wal_compression</code>, <code>max_wal_size</code>, <code>checkpoint_*</code>, <code>wal_buffers</code>, etc.)</td><td>v0.1 print · v0.2 apply</td></tr>
 </table>
 </div>
 </details>
@@ -885,14 +888,14 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <p>Each version is its own release-blocker set. A version doesn't ship until every item below for that version (and every prior version) is green on PG 17 and PG 18. Highlights only — see <a href="./SPEC.md">SPEC.md</a> for the full per-version list.</p>
 <ol class="accept-list">
 <li><strong>v0.1.</strong> <code>\i pgseries.sql</code> installs cleanly; <code>create_series_table</code> + <code>adopt_partitioned_table</code> round-trip; <code>precreate_chunks</code> idempotent; <code>move_default</code> drains <code>…_default</code> with zero rows left under multi-row COPY; chunk-lease state machine invariant; role grants enforced.</li>
-<li><strong>v0.2.</strong> Bundle install ships pgque-core; smoke test on RDS / Aurora / Cloud SQL / Supabase / Neon / Crunchy Bridge; job overlap prevention test.</li>
+<li><strong>v0.2.</strong> Bundle install ships pgque-core; smoke test on RDS / Aurora / Cloud SQL / Supabase / Neon / Crunchy Bridge; job overlap prevention. <strong>Parallel-COPY ingest benchmark</strong>: ≥500 K rows/sec at 8 streams, target ≥1 M at 16+ streams; parallel batched INSERT at 32–64 conns hits ≥250 K. <code>add_dimension</code> upgrade re-partitions in place. <code>pgseries.tune()</code> apply mode validated.</li>
 <li><strong>v0.3.</strong> Cagg correctness on the straight path; <strong>backdated-DML test</strong> (UPDATE to a 2022 row re-materializes the 2022 bucket); out-of-window writes show in <code>cagg_lag</code>; AFTER STATEMENT triggers fire under COPY / bulk INSERT … SELECT.</li>
 <li><strong>v0.4.</strong> Aggregate correctness across the watermark (<code>avg</code>, <code>stddev</code>, <code>percentile_cont</code>); cagg select-list rejection; v0.3 → v0.4 upgrade auto-rebuilds.</li>
 <li><strong>v0.5.</strong> Cagg-on-cagg alignment errors; calendar-bucket parents; gapfill on empty buckets; first/last under combine.</li>
 <li><strong>v0.6.</strong> <strong>Plan-shape regression</strong> (partition pruning + BRIN + zero unnest of skipped); stats hygiene after swap; compression-swap retry; read-only enforcement; compression benchmark vs <code>pg_timeseries</code>; <strong>scale benchmark — 10<sup>10</sup> rows on PG 18 / local NVMe / ~128 GiB RAM</strong>.</li>
 <li><strong>v0.7.</strong> Compressed write path (<code>error</code> mode raises; <code>staging</code> round-trips); <code>ON CONFLICT</code> on heap branch.</li>
 <li><strong>v0.8.</strong> <code>add_index</code> propagation; info-view parity with TimescaleDB; <code>hll</code> inside partial-form caggs.</li>
-<li><strong>v1.0.</strong> Forward-compat upgrade (<code>add_dimension</code> on a v0.1-shaped table); multi-dim chunk identity through every existing API without breakage.</li>
+<li><strong>v1.0.</strong> APIs frozen; deprecation shims dropped; v0.8 example workload runs unchanged on v1.0; doc set complete.</li>
 <li><strong>Always.</strong> Red/green TDD; <code>samospec brief --ai</code> regenerates without verifier-flagged inventions on each release's published SPEC.md.</li>
 </ol>
 </section>
