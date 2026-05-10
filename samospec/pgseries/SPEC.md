@@ -104,17 +104,40 @@ retention:
 | Chunks | **365** (one per day) |
 | Rows per chunk | ~**2.7 × 10⁷** (steady state) |
 | Per-row footprint | ~**150 B** typical (narrow, few columns, append-only — no bloat budget) |
-| Steady-state ingest | ~**317 rows/sec** at 1-year retention |
-| Scale-benchmark ingest | ~**3 800 rows/sec** at 30-day fill |
+| Steady-state ingest (avg) | ~**317 rows/sec** at 1-year retention |
+| Scale-benchmark ingest (avg) | ~**3 800 rows/sec** at 30-day fill |
+| **Peak ingest, single writer** | **≥10 K rows/sec** (narrow row, `synchronous_commit = off` recommended) |
+| **Peak ingest, parallel writers** | **≥100 K rows/sec** aggregate on multi-vCPU + local NVMe; **target ≥250 K** with `COPY`/binary protocol |
 | Raw heap + indexes | ~**1.5 TiB** at 150 B/row |
 | Range, schema-dependent | **~0.7–3 TiB** raw (narrow → wide; pre-bloat) |
 | Compressed (2–4×) | ~**400–800 GiB** typical |
 | Per-chunk segmentby cap | ~**10⁴** (compression-ratio constraint) |
 
+**Ingest is a first-class concern.** Steady-state averages above
+hide bursty real-world ingest. Targets:
+
+- **Single writer**, narrow row, `synchronous_commit = off`:
+  **≥10 K rows/sec**. Modern PG on local NVMe handles this
+  comfortably; PgSeries must not degrade it (no per-row PL/pgSQL
+  in the hot path; no triggers on leaf partitions; pre-creation
+  keeps DEFAULT empty).
+- **Parallel writers** (8+ connections, 16+ vCPU, local NVMe):
+  **≥100 K rows/sec aggregate**. Ingest scales near-linearly with
+  writer count until the WAL fsync ceiling — same ceiling plain PG
+  hits.
+- **`COPY` / binary protocol**, 16+ vCPU, local NVMe: **target
+  ≥250 K rows/sec aggregate**, ideally **>500 K** for batch loads.
+
+Compression (v0.6) runs out-of-band against cold chunks and must
+not steal ingest throughput from the hot path. Cagg invalidation
+triggers (v0.3+) use AFTER STATEMENT with transition tables — one
+trigger fire per statement, not per row, so `COPY` of N rows
+costs O(1) trigger invocations.
+
 A user running narrow rows + minimal indexes + clean append-only
-ingest lands at the bottom of that range; a user with a wider
-schema, jsonb tags, or update-heavy traffic that bloats the heap
-lands at the top — or beyond it.
+ingest lands at the bottom of the storage range; a user with a
+wider schema, jsonb tags, or update-heavy traffic that bloats the
+heap lands at the top — or beyond it.
 
 10⁸–10⁹ rows is the easy case the same code handles without tuning.
 Past 10¹⁰ on a single instance, two things break first: cagg refresh
@@ -915,6 +938,15 @@ version) is green on PG 17 and PG 18.
   (the test the previous design would have failed).
 - **Chunk lease state machine.** Direct invariant tests cover
   every documented transition; no half-states reachable.
+- **Ingest benchmark.** On the reference machine (PG 18, local
+  NVMe, ~128 GiB RAM, 16+ vCPU): ≥**10 K rows/sec** single
+  writer (narrow row, `synchronous_commit = off`), ≥**100 K
+  rows/sec aggregate** with 8 parallel writers, ≥**250 K
+  rows/sec** via `COPY` from 4 streams. Pre-creation kept ≥7
+  days ahead throughout the run; nothing in `…_default` at
+  end. PgSeries is **not** allowed to be the bottleneck — a
+  control run against a hand-rolled partitioned table without
+  PgSeries must be within 5 % on the same hardware.
 - **Roles.** `pgseries_writer` cannot read another tenant's
   `chunk_lease` rows; `pgseries_reader` cannot mutate any catalog;
   `pgseries_admin` covers both.
@@ -989,6 +1021,13 @@ version) is green on PG 17 and PG 18.
 - **Compression benchmark.** NYC taxi + devops-metrics: ratio and
   scan latency on PgSeries vs uncompressed PG vs `pg_timeseries`
   (Citus columnar). Per-column-type breakdown.
+- **Ingest doesn't degrade.** Repeat the v0.1 ingest benchmark
+  (≥10 K rows/sec single writer, ≥100 K aggregate parallel,
+  ≥250 K via `COPY`) with an `add_compression_policy` running in
+  the background against cold chunks. The compression worker
+  takes its own segment-by-segment cost; **the hot ingest path
+  must stay within 5 % of the v0.1 number**. If it doesn't,
+  compression scheduling needs tuning before release.
 - **Scale benchmark (the headline).** Single self-hosted PG 18,
   **10¹⁰ rows** over 30 days. Reference hardware: local NVMe,
   ~128 GiB RAM, modern many-core x86. Reported numbers: ingest
