@@ -501,9 +501,11 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <tr><td>Compression</td><td>2–4×</td><td>mixed metric workloads</td></tr>
 <tr><td>Default chunks</td><td>365</td><td>one per day · 1-year retention</td></tr>
 <tr><td>Rows per chunk</td><td>~2.7 × 10<sup>7</sup></td><td>at the 10B-row target</td></tr>
-<tr><td>Average ingest</td><td>~317 rows/sec</td><td>uniform load</td></tr>
-<tr><td>Raw heap+TOAST</td><td>~320 GiB</td><td>at 32 B/row</td></tr>
-<tr><td>Compressed</td><td>~80–160 GiB</td><td>at 2–4×</td></tr>
+<tr><td>Per-row footprint</td><td>~150 B</td><td>heap + indexes + ~10% bloat</td></tr>
+<tr><td>Steady-state ingest</td><td>~317 rows/sec</td><td>10<sup>10</sup> ÷ 1 year</td></tr>
+<tr><td>Scale-bench ingest</td><td>~3 800 rows/sec</td><td>10<sup>10</sup> ÷ 30 days</td></tr>
+<tr><td>Raw heap + indexes</td><td>~1.5 TiB</td><td>at 150 B/row · ~0.7–3 TiB schema-dep</td></tr>
+<tr><td>Compressed (2–4×)</td><td>~400–800 GiB</td><td>typical</td></tr>
 <tr><td>Per-chunk segmentby cap</td><td>~10<sup>4</sup></td><td>beyond drops to ~1.5×</td></tr>
 <tr><td>Reference benchmark</td><td>local NVMe</td><td>~128 GiB RAM · PG 18</td></tr>
 </table>

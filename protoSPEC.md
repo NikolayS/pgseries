@@ -73,21 +73,36 @@ proper columnstore yet.
 **The headline 10¹⁰-row, 2–4×-compressed target lands at v0.6** —
 the release that ships columnar compression. Every number below is
 derived against that endpoint; see *Release stages* for what each
-intermediate version supports (v0.1 alone tops out around the heap-
-storage budget the user is willing to pay for, since compression
-isn't there yet).
+intermediate version supports (v0.1 alone tops out around the
+heap-storage budget the user is willing to pay for, since
+compression isn't there yet).
 
-Working back from 10B rows, with default 1-day chunks and 1-year
+**Per-row footprint matters.** PG's tuple header is 24 B before
+any data; add MAXALIGN padding, page-header overhead, free space,
+and one secondary B-tree index and a "narrow" row of `(timestamp,
+bigint, double)` ≈ 48–60 B + index, while a realistic metric row
+with a text tag and 4 doubles ≈ 100–200 B + index. The numbers
+below assume **~150 B/row** (data + indexes + bloat) — typical
+for the metrics workloads PgSeries targets.
+
+Working back from 10¹⁰ rows, with default 1-day chunks and 1-year
 retention:
 
 | | |
 |---|---|
 | Chunks | **365** (one per day) |
-| Rows per chunk | ~**2.7 × 10⁷** |
-| Average ingest | **~317 rows/sec** uniform |
-| Raw heap+TOAST | ~**320 GiB** at 32 B/row |
-| Compressed (2–4×) | **~80–160 GiB** |
-| Per-chunk segmentby cap | **~10⁴** (compression-ratio constraint) |
+| Rows per chunk | ~**2.7 × 10⁷** (steady state) |
+| Per-row footprint | ~**150 B** typical (heap + indexes + ~10% bloat) |
+| Steady-state ingest | ~**317 rows/sec** at 1-year retention |
+| Scale-benchmark ingest | ~**3 800 rows/sec** at 30-day fill |
+| Raw heap + indexes | ~**1.5 TiB** at 150 B/row |
+| Range, schema-dependent | **~0.7–3 TiB** raw (narrow → wide) |
+| Compressed (2–4×) | ~**400–800 GiB** typical |
+| Per-chunk segmentby cap | ~**10⁴** (compression-ratio constraint) |
+
+A user running narrow rows + minimal indexes lands at the bottom
+of that range; a user with a wider schema, jsonb tags, or two
+secondary indexes lands at the top.
 
 10⁸–10⁹ rows is the easy case the same code handles without tuning.
 Past 10¹⁰ on a single instance, two things break first: cagg refresh
