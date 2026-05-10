@@ -1,0 +1,18 @@
+{
+  "slug": "pgseries",
+  "phase": "publish",
+  "round_index": 0,
+  "version": "0.1.0",
+  "persona": null,
+  "push_consent": null,
+  "calibration": null,
+  "remote_stale": false,
+  "coupled_fallback": false,
+  "head_sha": "860bd1733dd472640bfe301430f7451252848d81",
+  "round_state": "committed",
+  "exit": null,
+  "published_at": "2026-05-09T13:00:00Z",
+  "published_version": "v0.1",
+  "created_at": "2026-05-09T13:00:00Z",
+  "updated_at": "2026-05-09T13:00:00Z"
+}
