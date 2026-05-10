@@ -243,7 +243,7 @@ pre {
 <div class="metabar-row">
 <div class="metabar-left">
 <span class="brand">pgseries</span>
-<span class="chip">v<b>v0.1</b></span>
+<span class="chip">version <b>v0.1</b></span>
 <span class="chip">2026-05-09</span>
 </div>
 <div class="metabar-right">
@@ -527,9 +527,9 @@ Summary, not the spec. Skim this for shape, architecture, scope, risks, decision
 <tr><td>Per-row footprint</td><td>~150 B</td><td>narrow · few columns · append-only · no bloat</td></tr>
 <tr><td>Steady-state ingest (avg)</td><td>~317 rows/sec</td><td>10<sup>10</sup> ÷ 1 year</td></tr>
 <tr><td>Scale-bench ingest (avg)</td><td>~3 800 rows/sec</td><td>10<sup>10</sup> ÷ 30 days</td></tr>
-<tr><td><strong>Peak, single writer</strong></td><td><strong>≥10 K rows/sec</strong></td><td>narrow row · <code>synchronous_commit=off</code></td></tr>
-<tr><td><strong>Peak, parallel writers</strong></td><td><strong>≥100 K rows/sec</strong></td><td>8+ conns · 16+ vCPU · local NVMe</td></tr>
-<tr><td><strong>Peak, COPY / binary</strong></td><td><strong>≥250 K rows/sec</strong> · target &gt;500 K</td><td>4+ streams · batch loads</td></tr>
+<tr><td><strong>Peak, single writer</strong></td><td><strong>≥10 K rows/sec</strong></td><td>narrow · prepared · batched ~100/INSERT · async commit</td></tr>
+<tr><td><strong>Peak, parallel writers</strong></td><td><strong>≥100 K rows/sec</strong></td><td><strong>32–64 conns</strong> · batched · async commit · 16+ vCPU</td></tr>
+<tr><td><strong>Peak, COPY / binary</strong></td><td><strong>≥250 K rows/sec</strong> · target ≥1 M</td><td>4+ streams (1 M target at 16+) · batch loads</td></tr>
 <tr><td>Raw heap + indexes</td><td>~1.5 TiB</td><td>at 150 B/row · ~0.7–3 TiB schema-dep · pre-bloat</td></tr>
 <tr><td>Compressed (2–4×)</td><td>~400–800 GiB</td><td>typical</td></tr>
 <tr><td>Per-chunk segmentby cap</td><td>~10<sup>4</sup></td><td>beyond drops to ~1.5×</td></tr>
